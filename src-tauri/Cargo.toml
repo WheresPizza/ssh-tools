@@ -2,7 +2,7 @@
 name = "ssh-gui"
 version = "0.1.0"
 description = "SSH GUI - Manage SSH configs, keys, and connections"
-authors = []
+authors = ["Lizardog"]
 edition = "2021"
 
 [lib]
