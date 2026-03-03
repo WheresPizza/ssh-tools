@@ -22,7 +22,7 @@ jobs:
 
   backend:
     name: Backend (Rust)
-    runs-on: ubuntu-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
