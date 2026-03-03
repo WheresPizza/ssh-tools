@@ -4,6 +4,12 @@ A macOS desktop app for managing SSH configurations, keys, and connections — b
 
 <!-- screenshot here -->
 
+## Download
+
+Get the latest `.dmg` from the [Releases page](../../releases/latest), open it, and drag **SSH GUI** to Applications.
+
+> **First launch:** Right-click the app → **Open** to bypass the Gatekeeper unsigned-app warning.
+
 ## Features
 
 - **SSH Config** — view, create, edit, and delete hosts in `~/.ssh/config`
@@ -34,6 +40,9 @@ npm run build
 
 # Rust (no warnings)
 cd src-tauri && cargo check
+
+# Distributable DMG (output: src-tauri/target/release/bundle/dmg/)
+npm run release
 ```
 
 ## Testing
