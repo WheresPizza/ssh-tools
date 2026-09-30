@@ -45,9 +45,9 @@ pub fn get_ssh_dir_path() -> Result<String> {
 
 #[derive(serde::Serialize)]
 pub struct PermissionIssue {
-    path: String,
-    current: String,
-    expected: String,
+    pub(crate) path: String,
+    pub(crate) current: String,
+    pub(crate) expected: String,
 }
 
 #[cfg(unix)]
@@ -109,7 +109,7 @@ pub async fn audit_permissions() -> Result<Vec<PermissionIssue>> {
         .map_err(|e| crate::error::AppError::Process(format!("Background operation failed: {e}")))?
 }
 
-fn audit_permissions_blocking() -> Result<Vec<PermissionIssue>> {
+pub(crate) fn audit_permissions_blocking() -> Result<Vec<PermissionIssue>> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

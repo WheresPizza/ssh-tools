@@ -2,7 +2,7 @@
 
 ## Release state
 
-Version **0.2.0** targets macOS. Local builds are unsigned and not notarized. The checked-in release workflow does not configure signing credentials. Do not describe these builds as signed, notarized, universal, or validated on Linux/Windows.
+Version **0.3.0** targets macOS. Local builds are unsigned and not notarized. The checked-in release workflow does not configure signing credentials. Do not describe these builds as signed, notarized, universal, or validated on Linux/Windows.
 
 Preparing files is not publishing: create/push a tag and publish a GitHub release only when the maintainer intends to release.
 
@@ -22,7 +22,7 @@ Preparing files is not publishing: create/push a tag and publish a GitHub releas
 
 A pushed `v*.*.*` tag triggers `.github/workflows/release.yml`. It validates the tag/version relationship, runs frontend and Rust checks, then builds native `.app`/`.dmg` assets with the checked-in Tauri configuration. It creates a **draft**, not a public release. The build architecture follows the hosted macOS runner; inspect the artifact filename and executable before publishing.
 
-For 0.2.0, the tag is `v0.2.0`. Before publishing the draft:
+For 0.3.0, the tag is `v0.3.0`. Before publishing the draft:
 
 - Confirm CI succeeded and assets open correctly on the target architecture.
 - Review the versioned notes in `docs/releases/<version>.md`, which the workflow inserts into the draft.
@@ -43,4 +43,4 @@ Record actual verification results when preparing a release. Do not present a lo
 
 `npm run release` sets `en_US.UTF-8` for macOS packaging. The system Perl invoked by the DMG builder fails under an inherited `C.UTF-8` locale. For direct `tauri bundle` invocations, use `LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8 LC_CTYPE=en_US.UTF-8` as well.
 
-Latest local report: [0.2.0 verification](releases/0.2.0-verification.md).
+Current local report: [0.3.0 verification](releases/0.3.0-verification.md). Previous release: [0.2.0 verification](releases/0.2.0-verification.md).

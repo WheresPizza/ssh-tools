@@ -1,6 +1,6 @@
 [package]
 name = "ssh-gui"
-version = "0.2.0"
+version = "0.3.0"
 description = "SSH GUI - Manage SSH configs, keys, and connections"
 authors = ["Lizardog"]
 edition = "2021"

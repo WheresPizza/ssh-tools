@@ -16,6 +16,16 @@ Import first inspects the file and shows its fingerprint, encryption state and d
 
 Deletion reviews known profile, host and scanned-repository references and checks the key fingerprint. Its coverage excludes unscanned projects and remote installations. Keep your own secure backups before deleting keys you might need later.
 
+## Key details, labels and local audit
+
+Open **Details** beside a key to see its fingerprint, file paths, encryption state, agent membership, copies with the same fingerprint and references to the selected file. The file timestamp is its modification time, not proof of when the identity was created. Each copy remains a separate file row because deletion and references are path-specific.
+
+**Labels & notes** contains comma-separated tags, purpose, notes and an optional planned replacement date. **Save annotations** updates all copies of the same identity. Search matches tags and purpose as well as names, comments and fingerprints; **All tags** narrows the library by a selected tag. Tags are trimmed and deduplicated case-insensitively. Notes are plain local text: do not put secrets in them.
+
+The replacement date is a reminder, not an SSH expiration or revocation mechanism. Due dates appear as warnings in the audit. A stale-save error keeps your draft intact: copy important edits, discard the draft, reload annotations and reapply them. Leaving the detail view with Back to keys prompts before discarding edits.
+
+**Audit keys** checks the local library on demand. Filter errors, warnings or informational notes, open **Local references and scan coverage** for evidence, or open a key's details. It reports malformed or mismatched pairs, missing companions, duplicate identities, unencrypted private files, excess permissions and missing local links. An encrypted legacy pair may remain unverified without unlocking. Absence of local references never proves a key is unused remotely. The audit makes no network connections and does not modify keys; permission repair remains in the existing permissions panel. Run it again after changing files or configuration.
+
 ## Multiple Git accounts
 
 1. Create/import a separate key for the account and register its public key with your provider.

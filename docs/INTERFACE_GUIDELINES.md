@@ -42,3 +42,7 @@ See [screen ownership](SCREEN_OWNERSHIP.md) before adding navigation items or ac
 ## Brand assets
 
 The application mark combines a terminal prompt and a key on a graphite tile. Its editable source is `public/app-icon.svg`; the menu-bar template is `src-tauri/icons/tray-source.svg`. Run `npm run icons` to regenerate native assets. Use the same application mark in README and the webview favicon. Keep the tray mark monochrome so macOS can adapt it to the menu-bar appearance.
+
+## Key details and audit
+
+Key details is a drill-down inside SSH Keys with Back to keys, not a new navigation entity. Annotations are edited only there; list rows show tags and expose filters. The audit is a read-only report inside the same screen. Severity uses both words and semantic colors. Put incomplete coverage beside findings, and keep repair actions in their existing owning panel. File actions remain attached to a specific path even when annotations are shared by fingerprint.

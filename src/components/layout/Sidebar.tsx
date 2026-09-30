@@ -37,7 +37,7 @@ export function Sidebar() {
           </div>
         </div>)}
       </nav>
-      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / v0.2.0</div>
+      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / v0.3.0</div>
     </aside>
   );
 }

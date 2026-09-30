@@ -14,7 +14,7 @@ Built with **Tauri, Rust, React and TypeScript**, with a terminal-inspired inter
 | **Repositories** | Discover Git repositories in selected folders and inspect remote → SSH alias → profile/key relationships. Scanning is read-only. |
 | **Git Profiles** | Separate work, personal and client accounts with named profiles, dedicated SSH aliases, key selection and account-specific clone URLs. |
 | **SSH Hosts** | Add, edit, duplicate, search and reorder configuration blocks, inspect included files, and open connections in your terminal. |
-| **SSH Keys** | Generate Ed25519, RSA or ECDSA keys; import existing keys; copy or recover public keys; inspect permissions and references before deletion. |
+| **SSH Keys** | Generate Ed25519, RSA or ECDSA keys; import existing keys; copy or recover public keys; inspect permissions and references before deletion. Inspect key details, organize with shared tags/notes, and run a read-only local audit. |
 | **Trusted Hosts** | Inspect server identities in `known_hosts`, compare stored keys with a network scan, and remove selected trust records. |
 | **Diagnostics** | Inspect effective OpenSSH settings and agent availability, then explicitly test public-key authentication with a bounded timeout. |
 | **Settings** | Choose your terminal and review or restore the previous version of supported SSH configuration/trust files. |

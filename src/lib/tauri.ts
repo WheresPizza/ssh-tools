@@ -133,3 +133,14 @@ export const restorePublicKey = (keyPath: string, expectedFingerprint: string) =
 export interface AgentOptions { lifetime_seconds: number | null; confirm: boolean }
 export interface AgentEnrollment extends AgentOptions { fingerprint: string; requested_at: number; interactive: boolean }
 export const listAgentEnrollments = () => invoke<AgentEnrollment[]>("list_agent_enrollments");
+
+// Local annotations are shared by fingerprint, never written into key files.
+export interface KeyMetadata { tags: string[]; purpose: string; note: string; replace_on: string | null }
+export interface MetadataSnapshot { entries: Record<string, KeyMetadata>; revision: string }
+export const listKeyMetadata = () => invoke<MetadataSnapshot>("list_key_metadata");
+export const saveKeyMetadata = (keyPath: string, expectedFingerprint: string, metadata: KeyMetadata, revision: string) =>
+  invoke<MetadataSnapshot>("save_key_metadata", { key_path: keyPath, expected_fingerprint: expectedFingerprint, metadata, revision });
+export interface KeyFinding { code: string; severity: "error" | "warning" | "info"; title: string; detail: string }
+export interface KeyAuditEntry { key_path: string; fingerprint: string; findings: KeyFinding[]; usage: KeyUsage | null; copies: string[] }
+export interface KeyAudit { entries: KeyAuditEntry[]; warnings: string[]; checked_at: number }
+export const auditSshKeys = () => invoke<KeyAudit>("audit_ssh_keys");

@@ -30,7 +30,7 @@ pub struct RepositoryScan {
     pub warnings: Vec<String>,
     pub repositories: usize,
 }
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct KeyUsage {
     pub hosts: Vec<String>,
     pub profiles: Vec<String>,
@@ -449,27 +449,90 @@ pub async fn scan_repositories() -> Result<RepositoryScan> {
         .await
         .map_err(|e| invalid(e.to_string()))?
 }
+/// Scan project folders once for the whole key library.
+pub(crate) fn usage_for_keys(
+    paths: &[String],
+) -> Result<std::collections::BTreeMap<String, KeyUsage>> {
+    let root = crate::utils::ssh_dir::get_ssh_dir()?;
+    let documents = super::ssh_config::config_documents()?;
+    let hosts: Vec<_> = documents
+        .iter()
+        .flat_map(|(source, content)| {
+            super::ssh_config::parse_ssh_config(&format!("Host *\n{content}"))
+                .into_iter()
+                .map(move |host| (source, host))
+        })
+        .collect();
+    let profiles = super::profiles::list_blocking()?.profiles;
+    let found = scan(
+        roots_blocking()?,
+        &hosts
+            .iter()
+            .map(|(_, host)| host.clone())
+            .collect::<Vec<_>>(),
+        &profiles,
+        &root,
+    )?;
+    let mut warnings = found.warnings;
+    if found.remotes.iter().any(|r| !r.warnings.is_empty()) {
+        warnings.push("Some repositories override SSH or include additional Git configuration; their mapping may be incomplete.".into());
+    }
+    let mut result = std::collections::BTreeMap::new();
+    for path in paths {
+        let mut linked_hosts: Vec<String> = hosts
+            .iter()
+            .filter(|(_, host)| {
+                host.identity_file
+                    .iter()
+                    .any(|id| identity_path(id, &root).as_deref() == Some(path.as_str()))
+            })
+            .map(|(source, host)| format!("{} ({})", host.alias, source.display()))
+            .collect();
+        if [
+            "id_ed25519",
+            "id_ed25519_sk",
+            "id_rsa",
+            "id_ecdsa",
+            "id_ecdsa_sk",
+            "id_dsa",
+        ]
+        .iter()
+        .any(|name| root.join(name) == PathBuf::from(path))
+        {
+            linked_hosts.push("OpenSSH default identity; destinations without explicit IdentityFile may use this key".into());
+        }
+        result.insert(
+            path.clone(),
+            KeyUsage {
+                hosts: linked_hosts,
+                profiles: profiles
+                    .iter()
+                    .filter(|p| p.key_path == *path)
+                    .map(|p| p.name.clone())
+                    .collect(),
+                repositories: found
+                    .remotes
+                    .iter()
+                    .filter(|r| r.key_paths.contains(path))
+                    .map(|r| format!("{} · {}", r.repository, r.name))
+                    .collect(),
+                roots: found.roots.clone(),
+                warnings: warnings.clone(),
+            },
+        );
+    }
+    Ok(result)
+}
 #[tauri::command(rename_all = "snake_case")]
 pub async fn get_key_usage(key_path: String) -> Result<KeyUsage> {
     tauri::async_runtime::spawn_blocking(move || {
         crate::utils::ssh_dir::validate_key_path(&key_path)?;
-        let root = crate::utils::ssh_dir::get_ssh_dir()?;
-        let mut hosts = Vec::new();
-        for (source, content) in super::ssh_config::config_documents()? {
-            for host in super::ssh_config::parse_ssh_config(&format!("Host *\n{content}")) {
-                if host.identity_file.iter().any(|id| identity_path(id, &root).as_deref() == Some(&key_path)) { hosts.push(format!("{} ({})",host.alias,source.display())); }
-            }
-        }
-        if ["id_ed25519", "id_ed25519_sk", "id_rsa", "id_ecdsa", "id_ecdsa_sk", "id_dsa"].iter().any(|name| root.join(name) == PathBuf::from(&key_path)) {
-            hosts.push("OpenSSH default identity; destinations without explicit IdentityFile may use this key".into());
-        }
-        let profiles = super::profiles::list_blocking()?.profiles.into_iter().filter(|p| p.key_path == key_path).map(|p| p.name).collect();
-        let found = scan_blocking()?;
-        let repositories = found.remotes.iter().filter(|r| r.key_paths.contains(&key_path)).map(|r| format!("{} · {}",r.repository,r.name)).collect();
-        let mut warnings = found.warnings;
-        if found.remotes.iter().any(|r| !r.warnings.is_empty()) { warnings.push("Some repositories override SSH or include additional Git configuration; their mapping may be incomplete.".into()); }
-        Ok(KeyUsage { hosts, profiles, repositories, roots: found.roots, warnings })
-    }).await.map_err(|e| invalid(e.to_string()))?
+        usage_for_keys(std::slice::from_ref(&key_path))?
+            .remove(&key_path)
+            .ok_or_else(|| invalid("Key usage unavailable"))
+    })
+    .await
+    .map_err(|e| invalid(e.to_string()))?
 }
 
 #[cfg(test)]

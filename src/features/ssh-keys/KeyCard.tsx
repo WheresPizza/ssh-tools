@@ -6,6 +6,8 @@ import { KeyUsageDialog } from "./KeyUsageDialog";
 
 interface KeyCardProps {
   keyInfo: SshKeyInfo;
+  tags: string[];
+  onDetails: () => void;
   agentFingerprints: string[];
   enrollment?: AgentEnrollment;
   onDelete: () => void;
@@ -21,14 +23,14 @@ const ALG_LABELS: Record<string, string> = {
   ecdsa: "ECDSA",
 };
 
-export function KeyCard({ keyInfo, agentFingerprints, enrollment, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
+export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, enrollment, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isInAgent = agentFingerprints.includes(keyInfo.fingerprint);
 
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors group">
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-[220px]">
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm font-semibold text-foreground">{keyInfo.name}</span>
             <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-mono">
@@ -52,6 +54,7 @@ export function KeyCard({ keyInfo, agentFingerprints, enrollment, onDelete, onCo
           {enrollment && <p className="text-xs text-muted-foreground mt-1">Last {enrollment.interactive ? "requested in terminal" : "added here"}: {enrollment.lifetime_seconds ? `${Math.ceil(enrollment.lifetime_seconds / 60)} min limit` : "agent default lifetime"}{enrollment.confirm ? "; confirm every use" : ""}. Current restrictions cannot be queried from OpenSSH.</p>}
           {isInAgent && !enrollment && <p className="text-xs text-muted-foreground mt-1">Loaded outside this app session; lifetime and confirmation policy unknown.</p>}
           {keyInfo.error && <p role="status" className="text-xs text-destructive mt-1">{keyInfo.error}</p>}
+          {tags.length > 0 && <div className="flex flex-wrap gap-1 mt-2">{tags.map(tag => <span key={tag} className="text-xs rounded border border-border px-1.5 py-0.5 break-all">{tag}</span>)}</div>}
           {keyInfo.comment && (
             <div className="text-xs text-muted-foreground mt-0.5 truncate">{keyInfo.comment}</div>
           )}
@@ -59,6 +62,7 @@ export function KeyCard({ keyInfo, agentFingerprints, enrollment, onDelete, onCo
             <div className="text-xs text-muted-foreground mt-0.5">{keyInfo.created_at}</div>
           )}
         </div>
+        <button className="btn btn-compact" onClick={onDetails} aria-label={`Details for ${keyInfo.name}`}>Details</button>
         <fieldset disabled={!!keyInfo.error} className="flex flex-wrap gap-1 opacity-100 transition-opacity">
           {keyInfo.public_key_exists === false && <button className="btn btn-compact" onClick={() => {
             restorePublicKey(keyInfo.private_path, keyInfo.fingerprint).then(() => useStore.getState().showToast("Public companion restored", "success")).catch(e => useStore.getState().showToast(`Cannot restore public key: ${e}`, "error"));

@@ -1,7 +1,7 @@
 //! Full local lifecycle through Tauri's real IPC decoder. The parent starts a
 //! dedicated process and ssh-agent with an isolated workspace, never changing HOME.
 use crate::commands::{
-    agent_policy::*, diagnostics::*, key_import::*, profiles::*, repositories::*,
+    agent_policy::*, diagnostics::*, key_import::*, key_insights::*, profiles::*, repositories::*,
 };
 use crate::commands::{app::*, known_hosts::*, launcher::*, ssh_config::*, ssh_keys::*};
 use serde_json::{json, Value};
@@ -86,6 +86,9 @@ fn local_workflow() {
             set_repository_roots,
             scan_repositories,
             get_key_usage,
+            list_key_metadata,
+            save_key_metadata,
+            audit_ssh_keys,
             diagnose_ssh,
             inspect_key_import,
             import_ssh_key,
@@ -423,6 +426,98 @@ fn local_workflow() {
     let usage = invoke("get_key_usage", json!({"key_path":keypath}));
     assert_eq!(usage["profiles"], json!(["Work"]));
     assert_eq!(usage["repositories"].as_array().unwrap().len(), 1);
+    // Annotations persist by identity across copies and enforce optimistic concurrency.
+    let before_metadata = invoke("list_key_metadata", json!({}));
+    let annotations = json!({"tags":[" work ","WORK","client"],"purpose":"Git signing fixture","note":"Local notes", "replace_on":"2028-02-29"});
+    let request = json!({"key_path":keypath,"expected_fingerprint":key["fingerprint"],"metadata":annotations,"revision":before_metadata["revision"]});
+    let saved_metadata = invoke("save_key_metadata", request.clone());
+    let fingerprint = key["fingerprint"].as_str().unwrap();
+    assert_eq!(
+        saved_metadata["entries"][fingerprint]["tags"],
+        json!(["work", "client"])
+    );
+    assert_eq!(invoke("list_key_metadata", json!({})), saved_metadata);
+    assert!(call("save_key_metadata", request)
+        .unwrap_err()
+        .contains("changed"));
+    assert!(call("save_key_metadata", json!({"key_path":keypath,"expected_fingerprint":"stale","metadata":annotations,"revision":saved_metadata["revision"]})).unwrap_err().contains("key changed"));
+    let copy_saved = invoke(
+        "save_key_metadata",
+        json!({"key_path":root.join("team/work"),"expected_fingerprint":key["fingerprint"],"metadata":{"tags":["personal"],"purpose":"","note":"","replace_on":null},"revision":saved_metadata["revision"]}),
+    );
+    assert_eq!(copy_saved["entries"].as_object().unwrap().len(), 1);
+    assert_eq!(
+        copy_saved["entries"][fingerprint]["tags"],
+        json!(["personal"])
+    );
+    // Read-only audit: file bytes, permissions and modification times must stay intact.
+    let files = crate::utils::ssh_dir::regular_files(root).unwrap();
+    let before: Vec<_> = files
+        .iter()
+        .map(|p| {
+            (
+                p.clone(),
+                std::fs::read(p).unwrap(),
+                std::fs::metadata(p).unwrap().modified().unwrap(),
+                std::fs::metadata(p).unwrap().permissions(),
+            )
+        })
+        .collect();
+    let audit = invoke("audit_ssh_keys", json!({}));
+    let entries = audit["entries"].as_array().unwrap();
+    let work = entries.iter().find(|e| e["key_path"] == keypath).unwrap();
+    let codes: Vec<_> = work["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["code"].as_str().unwrap())
+        .collect();
+    assert!(codes.contains(&"no-passphrase") && codes.contains(&"copies"));
+    assert!(!codes.contains(&"no-local-links"));
+    assert_eq!(work["usage"]["profiles"], json!(["Work"]));
+    assert_eq!(work["copies"].as_array().unwrap().len(), 2);
+    let broken = entries
+        .iter()
+        .find(|e| e["key_path"] == root.join("id_broken").to_str().unwrap())
+        .unwrap();
+    assert!(broken["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["code"] == "unreadable"));
+    let mismatch = entries
+        .iter()
+        .find(|e| e["key_path"] == root.join("mismatch").to_str().unwrap())
+        .unwrap();
+    assert!(mismatch["findings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|f| f["severity"] == "error"));
+    for (path, bytes, modified, permissions) in before {
+        assert_eq!(std::fs::read(&path).unwrap(), bytes);
+        let after = std::fs::metadata(&path).unwrap();
+        assert_eq!(after.modified().unwrap(), modified);
+        assert_eq!(after.permissions(), permissions);
+    }
+    // A failed relationship scan must not claim a complete absence of references.
+    let roots_path = root
+        .parent()
+        .unwrap()
+        .join("settings/repository-roots.json");
+    let roots_content = std::fs::read(&roots_path).unwrap();
+    std::fs::write(&roots_path, "broken json").unwrap();
+    let partial = invoke("audit_ssh_keys", json!({}));
+    assert!(!partial["warnings"].as_array().unwrap().is_empty());
+    for entry in partial["entries"].as_array().unwrap() {
+        assert!(entry["usage"].is_null());
+        assert!(!entry["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["code"] == "no-local-links"));
+    }
+    std::fs::write(&roots_path, roots_content).unwrap();
     let report = invoke("diagnose_ssh", json!({"alias":"git-work","network":false}));
     assert_eq!(report["hostname"], "github.com");
     assert_eq!(report["port"], "2222");

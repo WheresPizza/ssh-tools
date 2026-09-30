@@ -1,6 +1,6 @@
 # Behavior and security boundaries
 
-Reference for SSH GUI 0.2.0. Read alongside the [user guide](USER_GUIDE.md).
+Reference for SSH GUI 0.3.0. Read alongside the [user guide](USER_GUIDE.md).
 
 ## Data handling
 
@@ -17,6 +17,14 @@ The editor displays physical Host blocks, including source paths; it does not ca
 A network key comparison reports whether the scanned key matches the stored key; it is not independent proof of the server's identity. Hashed names and certificate-authority/revocation records cannot be compared this way.
 
 Copy to Server uses `ssh-copy-id -f` so an existing configured identity cannot incorrectly cause the new key to be skipped. Repeating the operation can append a duplicate authorized-key entry. The terminal reports authentication and installation results.
+
+## Key annotations and audit
+
+Annotations live in `key-metadata.json` under the application config directory (`settings` in isolated mode), keyed by SHA256 fingerprint. Copies share tags, purpose, notes and a replacement date. Deleting or moving a key file does not delete its annotations; importing the same identity restores that association. Metadata does not contain private key bytes and is not encrypted; do not store secrets in notes. Writes use the common private atomic-write mechanism, retain one previous metadata version and reject stale revisions, symlink destinations and changed key fingerprints. The Settings recovery inventory covers SSH files, not this metadata file.
+
+Limits: 20 tags, 64 UTF-8 bytes per tag, 256 bytes for purpose, 4096 bytes for notes and a 1 MiB metadata file. Tags cannot contain commas or control characters. Notes allow newlines and tabs. Dates must be real YYYY-MM-DD dates. A planned date does not expire the key; the UI compares it with the local calendar date during audit rendering.
+
+Audit results are snapshots, not continuous monitoring or proof of successful authentication. The audit reads key files and current permissions, checks supported keypair identities, and scans configured repository folders once for the whole library. It never connects to servers, executes repository SSH commands, unlocks encrypted keys or applies fixes. Failed permission/relationship checks produce incomplete-check warnings. No local references means only that none were found in the checked data. Permission repair remains a separate explicit action. Details list references for the selected file and identify other local copies; they do not combine different paths into an assumed effective SSH identity.
 
 ## Profile, repository and diagnostic behavior
 

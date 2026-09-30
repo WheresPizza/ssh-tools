@@ -29,7 +29,7 @@ cargo audit --file src-tauri/Cargo.lock
 
 `cargo audit` requires the separately installed cargo-audit tool. Findings and target-specific limitations are tracked in [Behavior](BEHAVIOR.md); a successful build is not proof of a clean dependency audit.
 
-Rust tests generate temporary keys and exercise production handlers through Tauri IPC, including source revisions, import, profiles, repository relationships and an isolated agent. Frontend tests cover payloads, destructive confirmations, navigation migration, shared recovery, agent settings and event cleanup.
+Rust tests generate temporary keys and exercise production handlers through Tauri IPC, including source revisions, import, profiles, repository relationships and an isolated agent. The 0.3.0 scenario also checks shared annotations across key copies, stale/fingerprint guards, read-only audit byte/permission/timestamp invariants, and incomplete relationship scans. Frontend tests cover payloads, destructive confirmations, navigation migration, shared recovery, agent settings, annotation draft preservation, tag search, audit filtering, replacement reminders and event cleanup.
 
 Optional localhost integration (requires `/usr/sbin/sshd`):
 

@@ -7,7 +7,7 @@ Every mutation has one owning screen. A contextual shortcut is useful when it op
 | Repositories | Discovered local Git remotes and their SSH relationships | Scan roots, read-only discovery, mapping to profiles/keys | Editing remotes, managing keys or profile copies |
 | Git Profiles | Named Git accounts backed by managed SSH aliases | Profile CRUD, identity assignment, account-specific clone URLs | Key generation, server trust, shell connections |
 | SSH Hosts | OpenSSH Host blocks, aliases and connection rules | Host CRUD, ordering, duplication, terminal connection launches | Editing generated Git profile aliases or global application preferences |
-| SSH Keys | Local private/public key pairs and agent enrollment | Generate/import, recover public part, copy public part, install public key, agent policy, file permissions, dependency-aware deletion | Git accounts, known_hosts server identities |
+| SSH Keys | Local private/public key pairs and agent enrollment | Generate/import, recover public part, copy public part, install public key, agent policy, file permissions, dependency-aware deletion, key details, shared annotations and local key audit | Git accounts, known_hosts server identities |
 | Trusted Hosts | Server public identities in known_hosts | Compare server keys, remove local trust records | Client keys, account authentication or deleting connection aliases |
 | Diagnostics | Effective configuration and authentication evidence | One shared diagnostic workflow, explicit network authentication test | Editing entities or implicitly opening sessions |
 | Settings | Application-wide preferences and file recovery | Terminal preference and one backup review/restore workflow | Another host list or key backup claims |

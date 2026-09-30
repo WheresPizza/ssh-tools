@@ -12,6 +12,7 @@ mod utils;
 use commands::agent_policy::*;
 use commands::diagnostics::*;
 use commands::key_import::*;
+use commands::key_insights::*;
 use commands::profiles::*;
 use commands::repositories::*;
 use commands::{app::*, known_hosts::*, launcher::*, ssh_config::*, ssh_keys::*};
@@ -127,6 +128,9 @@ pub fn run() {
             set_repository_roots,
             scan_repositories,
             get_key_usage,
+            list_key_metadata,
+            save_key_metadata,
+            audit_ssh_keys,
             list_agent_enrollments,
             inspect_key_import,
             import_ssh_key,

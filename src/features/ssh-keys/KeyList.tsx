@@ -1,8 +1,10 @@
-import type { SshKeyInfo, AgentEnrollment } from "../../lib/tauri";
+import type { SshKeyInfo, AgentEnrollment, MetadataSnapshot } from "../../lib/tauri";
 import { KeyCard } from "./KeyCard";
 
 interface KeyListProps {
   keys: SshKeyInfo[];
+  metadata: MetadataSnapshot | null;
+  onDetails: (key: SshKeyInfo) => void;
   agentFingerprints: string[];
   enrollments: AgentEnrollment[];
   onDelete: (keyPath: string, name: string, fingerprint: string) => void;
@@ -12,13 +14,15 @@ interface KeyListProps {
   onRemoveFromAgent: (key: SshKeyInfo) => void;
 }
 
-export function KeyList({ keys, agentFingerprints, enrollments, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyListProps) {
+export function KeyList({ keys, metadata, onDetails, agentFingerprints, enrollments, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyListProps) {
   return (
     <div className="flex flex-col gap-2">
       {keys.map((key) => (
         <KeyCard
           key={key.private_path}
           keyInfo={key}
+          tags={metadata?.entries[key.fingerprint]?.tags ?? []}
+          onDetails={() => onDetails(key)}
           agentFingerprints={agentFingerprints}
           enrollment={enrollments.find(e => e.fingerprint === key.fingerprint)}
           onDelete={() => onDelete(key.private_path, key.name, key.fingerprint)}

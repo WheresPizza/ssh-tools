@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Key details show fingerprints, files sharing an identity, agent state and local references.
+- Fingerprint-based tags, purpose, notes and a planned replacement date live in a separate local metadata file. Tag filters and search help organize the key library.
+- Read-only key audit reports unencrypted keys, malformed/mismatched pairs, duplicate identities, missing public companions, excess permissions and absent local references. Relationship discovery scans selected project folders once per audit.
+- Metadata writes reject stale revisions and changed key identities; unreadable metadata does not block the key library.
+
 ## 0.2.0
 
 ### Added

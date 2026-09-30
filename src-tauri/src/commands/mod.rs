@@ -2,6 +2,7 @@ pub mod agent_policy;
 pub mod app;
 pub mod diagnostics;
 pub mod key_import;
+pub mod key_insights;
 pub mod known_hosts;
 pub mod launcher;
 pub mod profiles;
