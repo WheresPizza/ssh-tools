@@ -6,7 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: mockInvoke }));
 import {
   getSshConfig, addHost, updateHost, deleteHost, reorderHosts,
   listSshKeys, generateSshKey, getPublicKey, deleteSshKey, getKeyFingerprint,
-  listKnownHosts, deleteKnownHost, deleteKnownHostByHostname,
+  listKnownHosts, deleteKnownHosts,
   launchSshConnection, getDetectedTerminal, setPreferredTerminal,
   getAppConfig, saveAppConfig, getSshDirPath,
 } from "@/lib/tauri";
@@ -55,15 +55,15 @@ describe("IPC contract: tauri.ts", () => {
     expect(args).not.toHaveProperty("originalAlias");
   });
   it("deleteHost — sends alias", async () => {
-    await deleteHost("myserver");
+    await deleteHost("myserver", "revision");
     expect(mockInvoke).toHaveBeenCalledOnce();
-    expect(mockInvoke).toHaveBeenCalledWith("delete_host", { alias: "myserver" });
+    expect(mockInvoke).toHaveBeenCalledWith("delete_host", { alias: "myserver", revision: "revision", source_path: "", line_start: null });
   });
   it("reorderHosts — sends aliases array", async () => {
     const aliases = ["b", "a"];
-    await reorderHosts(aliases);
+    await reorderHosts(aliases, "revision");
     expect(mockInvoke).toHaveBeenCalledOnce();
-    expect(mockInvoke).toHaveBeenCalledWith("reorder_hosts", { aliases });
+    expect(mockInvoke).toHaveBeenCalledWith("reorder_hosts", { aliases, revision: "revision", source_path: "" });
   });
 
   // ── SSH Keys ────────────────────────────────────────────────────────────────
@@ -90,12 +90,12 @@ describe("IPC contract: tauri.ts", () => {
     expect(mockInvoke.mock.calls[0][1]).not.toHaveProperty("keyPath");
   });
   it("deleteSshKey — sends key_path (snake_case)", async () => {
-    await deleteSshKey("/home/alice/.ssh/id_ed25519");
+    await deleteSshKey("/home/alice/.ssh/id_ed25519", "SHA256:expected");
     expect(mockInvoke).toHaveBeenCalledOnce();
-    expect(mockInvoke).toHaveBeenCalledWith("delete_ssh_key", { key_path: "/home/alice/.ssh/id_ed25519" });
+    expect(mockInvoke).toHaveBeenCalledWith("delete_ssh_key", { key_path: "/home/alice/.ssh/id_ed25519", expected_fingerprint: "SHA256:expected" });
   });
   it("deleteSshKey — does NOT send keyPath", async () => {
-    await deleteSshKey("/home/alice/.ssh/id_ed25519");
+    await deleteSshKey("/home/alice/.ssh/id_ed25519", "SHA256:expected");
     expect(mockInvoke.mock.calls[0][1]).not.toHaveProperty("keyPath");
   });
   it("getKeyFingerprint — sends key_path (snake_case)", async () => {
@@ -116,19 +116,10 @@ describe("IPC contract: tauri.ts", () => {
     expect(mockInvoke).toHaveBeenCalledOnce();
     expect(mockInvoke).toHaveBeenCalledWith("list_known_hosts");
   });
-  it("deleteKnownHost — sends line_number (snake_case)", async () => {
-    await deleteKnownHost(42);
-    expect(mockInvoke).toHaveBeenCalledOnce();
-    expect(mockInvoke).toHaveBeenCalledWith("delete_known_host", { line_number: 42 });
-  });
-  it("deleteKnownHost — does NOT send lineNumber (camelCase)", async () => {
-    await deleteKnownHost(42);
-    expect(mockInvoke.mock.calls[0][1]).not.toHaveProperty("lineNumber");
-  });
-  it("deleteKnownHostByHostname — sends hostname", async () => {
-    await deleteKnownHostByHostname("github.com");
-    expect(mockInvoke).toHaveBeenCalledOnce();
-    expect(mockInvoke).toHaveBeenCalledWith("delete_known_host_by_hostname", { hostname: "github.com" });
+  it("deletes known hosts with the expected entries to detect stale rows", async () => {
+    const entries = [{ line_number: 1, hostname: "host", key_type: "ssh-ed25519", key_data: "AAAA", marker: null }];
+    await deleteKnownHosts(entries);
+    expect(mockInvoke).toHaveBeenCalledWith("delete_known_hosts", { entries });
   });
 
   // ── Launcher ────────────────────────────────────────────────────────────────

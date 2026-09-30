@@ -1,3 +1,4 @@
+import { hostId } from "../../lib/ssh-host-utils";
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import type { DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -15,7 +16,7 @@ interface SortableHostCardProps {
 }
 
 function SortableHostCard({ host, lastConnected, onEdit, onDelete, onConnect, onDuplicate }: SortableHostCardProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: host.alias });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: hostId(host), disabled: host.can_reorder === false || host.read_only });
   return (
     <div
       ref={setNodeRef}
@@ -38,7 +39,7 @@ interface HostListProps {
   hosts: SshHost[];
   connectionHistory: Record<string, number>;
   onEdit: (host: SshHost) => void;
-  onDelete: (alias: string) => void;
+  onDelete: (host: SshHost) => void;
   onReorder: (reordered: SshHost[]) => void;
   onConnect: (host: SshHost) => void;
   onDuplicate: (host: SshHost) => void;
@@ -48,23 +49,24 @@ export function HostList({ hosts, connectionHistory, onEdit, onDelete, onReorder
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
     if (over && active.id !== over.id) {
-      const oldIdx = hosts.findIndex((h) => h.alias === active.id);
-      const newIdx = hosts.findIndex((h) => h.alias === over.id);
+      const oldIdx = hosts.findIndex((h) => hostId(h) === active.id);
+      const newIdx = hosts.findIndex((h) => hostId(h) === over.id);
+      if (oldIdx < 0 || newIdx < 0 || hosts[oldIdx].source_path !== hosts[newIdx].source_path) return;
       onReorder(arrayMove(hosts, oldIdx, newIdx));
     }
   }
 
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-      <SortableContext items={hosts.map((h) => h.alias)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={hosts.map(hostId)} strategy={verticalListSortingStrategy}>
         <div className="flex flex-col gap-2">
           {hosts.map((host) => (
             <SortableHostCard
-              key={host.alias}
+              key={hostId(host)}
               host={host}
               lastConnected={connectionHistory[host.alias]}
               onEdit={() => onEdit(host)}
-              onDelete={() => onDelete(host.alias)}
+              onDelete={() => onDelete(host)}
               onConnect={() => onConnect(host)}
               onDuplicate={() => onDuplicate(host)}
             />

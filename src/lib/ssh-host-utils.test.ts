@@ -66,3 +66,18 @@ describe("filterHosts", () => {
     expect(filterHosts(nullUser, "nouser")).toHaveLength(1);
   });
 });
+
+
+describe("connectable host aliases and filtered reordering", () => {
+  it("allows an alias without an explicit HostName and excludes patterns", async () => {
+    const { isConnectableAlias } = await import("./ssh-host-utils");
+    expect(isConnectableAlias("github-work")).toBe(true);
+    for (const alias of ["*", "one two", "!excluded", "-option", ""]) expect(isConnectableAlias(alias)).toBe(false);
+  });
+  it("keeps hidden hosts in their original slots", async () => {
+    const { mergeVisibleHostOrder } = await import("./ssh-host-utils");
+    const host = (alias: string) => ({ alias } as import("./tauri").SshHost);
+    const hosts = [host("one"), host("hidden"), host("two")];
+    expect(mergeVisibleHostOrder(hosts, [hosts[2], hosts[0]]).map(h => h.alias)).toEqual(["two", "hidden", "one"]);
+  });
+});

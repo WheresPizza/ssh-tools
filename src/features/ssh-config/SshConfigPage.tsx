@@ -1,9 +1,9 @@
 import { useEffect, useState, useCallback } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../../lib/events";
 import { useShallow } from "zustand/react/shallow";
 import { getSshConfig, addHost, updateHost, deleteHost, reorderHosts, launchSshConnection } from "../../lib/tauri";
 import type { SshHost } from "../../lib/tauri";
-import { filterHosts } from "../../lib/ssh-host-utils";
+import { filterHosts, mergeVisibleHostOrder } from "../../lib/ssh-host-utils";
 import { useStore } from "../../stores";
 import { HostList } from "./HostList";
 import { HostEditor } from "./HostEditor";
@@ -45,9 +45,7 @@ export function SshConfigPage() {
   }, [loadHosts]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen("ssh-config-changed", () => loadHosts()).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    return subscribe("ssh-config-changed", () => loadHosts());
   }, [loadHosts]);
 
   const handleAdd = () => {
@@ -60,9 +58,10 @@ export function SshConfigPage() {
     setIsAdding(false);
   };
 
-  const handleDelete = async (alias: string) => {
+  const handleDelete = async (host: SshHost) => {
+    const alias = host.alias;
     try {
-      await deleteHost(alias);
+      await deleteHost(alias, host.revision ?? "", host.source_path ?? "", host.line_start);
       showToast(`Host '${alias}' deleted`, "success");
       loadHosts();
     } catch (e) {
@@ -88,9 +87,17 @@ export function SshConfigPage() {
   };
 
   const handleReorder = async (reordered: SshHost[]) => {
-    setHosts(reordered);
+    const complete = mergeVisibleHostOrder(hosts, reordered);
+    setHosts(complete);
     try {
-      await reorderHosts(reordered.map((h) => h.alias));
+      const sources = new Set(complete.map(h => h.source_path ?? ""));
+      for (const source of sources) {
+        const group = complete.filter(h => (h.source_path ?? "") === source);
+        const previous = hosts.filter(h => (h.source_path ?? "") === source);
+        if (group.every((h,i) => h.alias === previous[i]?.alias)) continue;
+        await reorderHosts(group.map(h => h.alias), group[0]?.revision ?? "", source);
+      }
+      await loadHosts();
     } catch (e) {
       showToast(`Failed to reorder: ${e}`, "error");
       loadHosts();
@@ -98,12 +105,11 @@ export function SshConfigPage() {
   };
 
   const handleConnect = (host: SshHost) => {
-    recordConnection(host.alias);
-    launchSshConnection(host.alias).catch((e) => showToast(`Failed to launch: ${e}`, "error"));
+    launchSshConnection(host.alias).then(() => recordConnection(host.alias)).catch((e) => showToast(`Failed to launch: ${e}`, "error"));
   };
 
   const handleDuplicate = (host: SshHost) => {
-    setEditingHost({ ...host, alias: `${host.alias}-copy` });
+    setEditingHost({ ...host, source_path: host.read_only ? "" : host.source_path, read_only: false, alias: `${host.alias}-copy` });
     setIsAdding(true);
   };
 
@@ -127,17 +133,19 @@ export function SshConfigPage() {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div>
-          <h2 className="text-lg font-semibold">SSH Config</h2>
-          <p className="text-sm text-muted-foreground">~/.ssh/config</p>
+          <h2 className="text-lg font-semibold">SSH Hosts</h2>
+          <p className="text-sm text-muted-foreground">Connection aliases and rules from SSH configuration.</p>
         </div>
         <button
           onClick={handleAdd}
-          className="px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors font-medium"
+          className="btn btn-primary"
         >
           + Add Host
         </button>
       </div>
 
+      <button className="btn btn-compact mb-4" onClick={() => useStore.getState().setActiveTab("settings")}>File recovery in Settings</button>
+      <p className="mb-4 text-xs text-muted-foreground">Git profile aliases are generated configuration and remain read-only here. <button className="underline text-primary" onClick={() => useStore.getState().setActiveTab("git-profiles")}>Manage Git Profiles</button></p>
       {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="text-muted-foreground text-sm">Loading...</div>
@@ -149,7 +157,7 @@ export function SshConfigPage() {
           action={
             <button
               onClick={handleAdd}
-              className="px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors"
+              className="btn btn-primary"
             >
               Add Host
             </button>

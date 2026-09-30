@@ -6,10 +6,15 @@ pub fn detect_terminals() -> Vec<TerminalInfo> {
 
     let candidates = [
         ("iTerm2", "/Applications/iTerm.app/Contents/MacOS/iTerm2"),
-        ("Warp", "/Applications/Warp.app/Contents/MacOS/warp"),
-        ("Alacritty", "/Applications/Alacritty.app/Contents/MacOS/alacritty"),
+        (
+            "Alacritty",
+            "/Applications/Alacritty.app/Contents/MacOS/alacritty",
+        ),
         ("kitty", "/Applications/kitty.app/Contents/MacOS/kitty"),
-        ("Terminal", "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal"),
+        (
+            "Terminal",
+            "/System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal",
+        ),
     ];
 
     for (name, path) in &candidates {
@@ -128,7 +133,7 @@ pub fn build_launch_args(terminal_name: &str, ssh_command: &str) -> (String, Vec
                             write text "{}"
                         end tell
                     end tell"#,
-                    ssh_command.replace('"', r#"\""#)
+                    ssh_command.replace('\\', r"\\").replace('"', r#"\""#)
                 );
                 ("osascript".to_string(), vec!["-e".to_string(), script])
             }
@@ -138,20 +143,25 @@ pub fn build_launch_args(terminal_name: &str, ssh_command: &str) -> (String, Vec
                         do script "{}"
                         activate
                     end tell"#,
-                    ssh_command.replace('"', r#"\""#)
+                    ssh_command.replace('\\', r"\\").replace('"', r#"\""#)
                 );
                 ("osascript".to_string(), vec!["-e".to_string(), script])
             }
-            "Warp" => (
-                "open".to_string(),
-                vec!["-a".to_string(), "Warp".to_string(), "--args".to_string(), ssh_command.to_string()],
-            ),
+            "Warp" => {
+                // Warp has no stable command execution interface; use Terminal for this operation.
+                build_launch_args("Terminal", ssh_command)
+            }
             "Alacritty" => (
-                "alacritty".to_string(),
-                vec!["-e".to_string(), "sh".to_string(), "-c".to_string(), ssh_command.to_string()],
+                "/Applications/Alacritty.app/Contents/MacOS/alacritty".to_string(),
+                vec![
+                    "-e".to_string(),
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    ssh_command.to_string(),
+                ],
             ),
             "kitty" => (
-                "kitty".to_string(),
+                "/Applications/kitty.app/Contents/MacOS/kitty".to_string(),
                 vec!["sh".to_string(), "-c".to_string(), ssh_command.to_string()],
             ),
             _ => {
@@ -161,7 +171,7 @@ pub fn build_launch_args(terminal_name: &str, ssh_command: &str) -> (String, Vec
                         do script "{}"
                         activate
                     end tell"#,
-                    ssh_command.replace('"', r#"\""#)
+                    ssh_command.replace('\\', r"\\").replace('"', r#"\""#)
                 );
                 ("osascript".to_string(), vec!["-e".to_string(), script])
             }
@@ -173,7 +183,12 @@ pub fn build_launch_args(terminal_name: &str, ssh_command: &str) -> (String, Vec
         match terminal_name {
             "gnome-terminal" => (
                 "gnome-terminal".to_string(),
-                vec!["--".to_string(), "sh".to_string(), "-c".to_string(), ssh_command.to_string()],
+                vec![
+                    "--".to_string(),
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    ssh_command.to_string(),
+                ],
             ),
             "konsole" => (
                 "konsole".to_string(),
@@ -195,11 +210,22 @@ pub fn build_launch_args(terminal_name: &str, ssh_command: &str) -> (String, Vec
         match terminal_name {
             "Windows Terminal" => (
                 "wt.exe".to_string(),
-                vec!["new-tab".to_string(), "--".to_string(), "powershell.exe".to_string(), "-NoExit".to_string(), "-Command".to_string(), ssh_command.to_string()],
+                vec![
+                    "new-tab".to_string(),
+                    "--".to_string(),
+                    "powershell.exe".to_string(),
+                    "-NoExit".to_string(),
+                    "-Command".to_string(),
+                    ssh_command.to_string(),
+                ],
             ),
             "PowerShell" => (
                 "powershell.exe".to_string(),
-                vec!["-NoExit".to_string(), "-Command".to_string(), ssh_command.to_string()],
+                vec![
+                    "-NoExit".to_string(),
+                    "-Command".to_string(),
+                    ssh_command.to_string(),
+                ],
             ),
             _ => (
                 "cmd.exe".to_string(),
@@ -238,7 +264,7 @@ mod tests {
         #[test]
         fn alacritty_uses_sh_dash_c() {
             let (program, args) = build_launch_args("Alacritty", "ssh myserver");
-            assert_eq!(program, "alacritty");
+            assert!(program.ends_with("/alacritty"));
             assert!(args.contains(&"-e".to_string()));
             assert!(args.contains(&"sh".to_string()));
             assert!(args.contains(&"-c".to_string()));
@@ -248,7 +274,7 @@ mod tests {
         #[test]
         fn kitty_uses_sh_dash_c() {
             let (program, args) = build_launch_args("kitty", "ssh myserver");
-            assert_eq!(program, "kitty");
+            assert!(program.ends_with("/kitty"));
             assert!(args.contains(&"sh".to_string()));
             assert!(args.contains(&"-c".to_string()));
             assert!(args.contains(&"ssh myserver".to_string()));
@@ -257,9 +283,8 @@ mod tests {
         #[test]
         fn warp_uses_open_dash_a() {
             let (program, args) = build_launch_args("Warp", "ssh myserver");
-            assert_eq!(program, "open");
-            assert!(args.contains(&"-a".to_string()));
-            assert!(args.contains(&"Warp".to_string()));
+            assert_eq!(program, "osascript");
+            assert!(args.last().unwrap().contains("Terminal"));
         }
 
         #[test]

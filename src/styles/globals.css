@@ -1,55 +1,67 @@
 @import "tailwindcss";
 
-/* CSS custom properties for light/dark theming */
+/* SSH GUI interface tokens. See docs/INTERFACE_GUIDELINES.md. */
 :root {
-  --background: hsl(0 0% 100%);
-  --foreground: hsl(222.2 84% 4.9%);
-  --card: hsl(0 0% 100%);
-  --card-foreground: hsl(222.2 84% 4.9%);
-  --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(222.2 84% 4.9%);
-  --primary: hsl(221.2 83.2% 53.3%);
-  --primary-foreground: hsl(210 40% 98%);
-  --secondary: hsl(210 40% 96.1%);
-  --secondary-foreground: hsl(222.2 47.4% 11.2%);
-  --muted: hsl(210 40% 96.1%);
-  --muted-foreground: hsl(215.4 16.3% 46.9%);
-  --accent: hsl(210 40% 96.1%);
-  --accent-foreground: hsl(222.2 47.4% 11.2%);
-  --destructive: hsl(0 84.2% 60.2%);
-  --destructive-foreground: hsl(210 40% 98%);
-  --border: hsl(214.3 31.8% 91.4%);
-  --input: hsl(214.3 31.8% 91.4%);
-  --ring: hsl(221.2 83.2% 53.3%);
-  --radius: 0.5rem;
+  color-scheme: light;
+  --background: #f5f6f5;
+  --foreground: #202a29;
+  --card: #ffffff;
+  --card-foreground: var(--foreground);
+  --popover: var(--card);
+  --popover-foreground: var(--foreground);
+  --primary: #126b60;
+  --primary-foreground: #ffffff;
+  --secondary: #e9eeec;
+  --secondary-foreground: var(--foreground);
+  --muted: #e9eeec;
+  --muted-foreground: #586663;
+  --accent: #e0ebe7;
+  --accent-foreground: var(--foreground);
+  --destructive: #b33340;
+  --destructive-foreground: #ffffff;
+  --success: #237347;
+  --warning: #885c12;
+  --border: #cdd6d2;
+  --input: #aebeb7;
+  --ring: var(--primary);
+  --radius: 0.25rem;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: hsl(222.2 84% 4.9%);
-    --foreground: hsl(210 40% 98%);
-    --card: hsl(222.2 84% 4.9%);
-    --card-foreground: hsl(210 40% 98%);
-    --popover: hsl(222.2 84% 4.9%);
-    --popover-foreground: hsl(210 40% 98%);
-    --primary: hsl(217.2 91.2% 59.8%);
-    --primary-foreground: hsl(222.2 47.4% 11.2%);
-    --secondary: hsl(217.2 32.6% 17.5%);
-    --secondary-foreground: hsl(210 40% 98%);
-    --muted: hsl(217.2 32.6% 17.5%);
-    --muted-foreground: hsl(215 20.2% 65.1%);
-    --accent: hsl(217.2 32.6% 17.5%);
-    --accent-foreground: hsl(210 40% 98%);
-    --destructive: hsl(0 62.8% 30.6%);
-    --destructive-foreground: hsl(210 40% 98%);
-    --border: hsl(217.2 32.6% 17.5%);
-    --input: hsl(217.2 32.6% 17.5%);
-    --ring: hsl(224.3 76.3% 48%);
+    color-scheme: dark;
+    --background: #141819;
+    --foreground: #dce5e1;
+    --card: #1a2021;
+    --primary: #80cfb7;
+    --primary-foreground: #102c24;
+    --secondary: #222b2c;
+    --muted: #222b2c;
+    --muted-foreground: #a0afaa;
+    --accent: #283633;
+    --destructive: #f38b93;
+    --destructive-foreground: #351319;
+    --success: #8bcba0;
+    --warning: #e1ba75;
+    --border: #354240;
+    --input: #53645f;
   }
 }
 
-/* Map CSS vars to Tailwind v4 theme tokens */
 @theme inline {
+  --font-sans: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.8125rem;
+  --text-sm--line-height: 1.55;
+  --text-base: 0.875rem;
+  --text-base--line-height: 1.5;
+  --text-lg: 1rem;
+  --text-lg--line-height: 1.5;
+  --radius-sm: 0.125rem;
+  --radius-md: 0.25rem;
+  --radius-lg: 0.375rem;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -66,41 +78,97 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
 }
 
-/* Base resets */
-*, *::before, *::after {
-  border-color: var(--border);
+@layer base {
+  *, *::before, *::after { border-color: var(--border); }
+  body {
+    margin: 0;
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select, textarea { font: inherit; }
+  button, summary { cursor: pointer; }
+  button:disabled, fieldset:disabled button { cursor: not-allowed; opacity: 0.45; }
+  :where(button, a, summary, input, select, textarea, [tabindex]):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 3px;
+  }
+  input[type="checkbox"] { accent-color: var(--primary); width: 16px; height: 16px; }
+  ::selection { background: var(--primary); color: var(--primary-foreground); }
 }
 
-body {
-  background-color: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
-  -webkit-font-smoothing: antialiased;
-}
-
-/* Input field component */
 @layer components {
   .input-field {
     width: 100%;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    border-radius: 0.375rem;
+    min-height: 34px;
+    padding: 6px 10px;
+    font-size: 0.8125rem;
+    border-radius: var(--radius);
     border: 1px solid var(--input);
-    background-color: var(--background);
+    background: var(--background);
     color: var(--foreground);
-    transition: border-color 0.15s, box-shadow 0.15s;
-    outline: none;
+    transition: border-color 120ms;
   }
-  .input-field::placeholder {
-    color: var(--muted-foreground);
+  select.input-field {
+    appearance: none;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='m3 4 3 3 3-3' fill='none' stroke='%2388998f' stroke-width='1.5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
   }
-  .input-field:focus {
-    border-color: var(--ring);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--ring) 30%, transparent);
+  .input-field::placeholder { color: var(--muted-foreground); opacity: 1; }
+  .input-field:focus { border-color: var(--ring); }
+  .input-field:disabled { opacity: 0.55; cursor: not-allowed; }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--card);
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.4;
+    transition: background-color 120ms, border-color 120ms;
   }
+  .btn:hover:not(:disabled) { background: var(--accent); border-color: var(--input); }
+  .btn-primary { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+  .btn-primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 88%, var(--background)); border-color: var(--primary); }
+  .btn-danger { color: var(--destructive); border-color: color-mix(in srgb, var(--destructive) 55%, var(--border)); }
+  .btn-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--destructive) 12%, var(--card)); }
+  .btn-compact { min-height: 28px; padding: 3px 8px; font-size: 0.75rem; }
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; min-height: 36px; padding: 7px 12px;
+    border-left: 2px solid transparent;
+    color: var(--muted-foreground); text-align: left;
+  }
+  .nav-item:hover { background: var(--accent); color: var(--foreground); }
+  .nav-item[aria-current="page"] {
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+    border-left-color: var(--primary); color: var(--primary);
+  }
+  .workspace-banner {
+    margin-bottom: 20px; padding: 8px 12px;
+    border: 1px dashed var(--border); border-radius: var(--radius);
+    font-size: 0.75rem; color: var(--muted-foreground); overflow-wrap: anywhere;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
 }

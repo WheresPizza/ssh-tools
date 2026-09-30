@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { listSshKeys, type SshKeyInfo } from "../../lib/tauri";
 import type { SshHost } from "../../lib/tauri";
 
 interface HostEditorProps {
   host: SshHost | null;
   isNew?: boolean;
-  onSave: (host: SshHost) => void;
+  onSave: (host: SshHost) => Promise<void>;
   onCancel: () => void;
 }
 
@@ -23,6 +24,9 @@ const EMPTY_HOST: SshHost = {
 };
 
 export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditorProps) {
+  const [keys, setKeys] = useState<SshKeyInfo[]>([]);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => { listSshKeys().then(setKeys).catch(() => setKeys([])); }, []);
   const [form, setForm] = useState<SshHost>(host ?? EMPTY_HOST);
   const [identityInput, setIdentityInput] = useState(
     (host?.identity_file ?? []).join("\n")
@@ -31,7 +35,7 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
   const set = (key: keyof SshHost, value: unknown) =>
     setForm((f) => ({ ...f, [key]: value }));
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const saved: SshHost = {
       ...form,
@@ -40,7 +44,9 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
         .map((s) => s.trim())
         .filter(Boolean),
     };
-    onSave(saved);
+    if (saving) return;
+    setSaving(true);
+    try { await onSave(saved); } finally { setSaving(false); }
   };
 
   return (
@@ -48,7 +54,7 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
       <div className="flex items-center gap-3 mb-5">
         <button
           onClick={onCancel}
-          className="text-muted-foreground hover:text-foreground text-sm transition-colors"
+          className="btn text-muted-foreground hover:text-foreground"
         >
           ← Back
         </button>
@@ -57,8 +63,9 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
         </h2>
       </div>
 
+      {host?.source_path && <p className="mb-4 text-xs text-muted-foreground">File: {host.source_path}</p>}
       <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
-        <Field label="Alias *" required>
+        <Field label="Alias" required>
           <input
             required
             value={form.alias}
@@ -96,6 +103,19 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
             />
           </Field>
         </div>
+        <Field label="Choose an SSH key">
+          <select className="input-field" value="" onChange={e => {
+            const value = e.target.value;
+            if (value) setIdentityInput(previous => [...new Set([...previous.split("\n").filter(Boolean), value])].join("\n"));
+          }}>
+            <option value="">Select a key to add…</option>
+            {keys.filter(key => !key.error).map(key => <option key={key.private_path} value={JSON.stringify(key.private_path)}>{key.name} — {key.algorithm}</option>)}
+          </select>
+        </Field>
+        <label className="flex gap-2 text-sm items-start">
+          <input type="checkbox" checked={form.extra_fields.some(([k,v]) => k.toLowerCase() === "identitiesonly" && v.toLowerCase() === "yes")} onChange={e => set("extra_fields", [...form.extra_fields.filter(([k]) => k.toLowerCase() !== "identitiesonly"), ["IdentitiesOnly", e.target.checked ? "yes" : "no"]])} />
+          Use only the configured identities
+        </label>
         <Field label="Identity File(s)" hint="One path per line">
           <textarea
             value={identityInput}
@@ -144,14 +164,15 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
         <div className="flex gap-2 pt-2">
           <button
             type="submit"
-            className="px-4 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors font-medium"
+            disabled={saving}
+            className="btn btn-primary"
           >
-            {isNew ? "Add Host" : host ? "Save Changes" : "Add Host"}
+            {saving ? "Saving…" : isNew ? "Add Host" : host ? "Save Changes" : "Add Host"}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+            className="btn"
           >
             Cancel
           </button>

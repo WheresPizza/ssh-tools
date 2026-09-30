@@ -5,30 +5,52 @@ on:
     tags:
       - 'v*.*.*'
 
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release-macos:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
-
       - uses: dtolnay/rust-toolchain@stable
-
       - run: npm ci
-
+      - name: Validate release metadata
+        run: npm run release:check
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+      - run: npm test
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+      - name: Test Rust
+        run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Load reviewed release notes
+        id: notes
+        shell: bash
+        run: |
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            cat "docs/releases/${GITHUB_REF_NAME#v}.md"
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LANG: en_US.UTF-8
+          LC_ALL: en_US.UTF-8
+          LC_CTYPE: en_US.UTF-8
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: SSH Tools ${{ github.ref_name }}
-          releaseBody: |
-            Download **SSH Tools.dmg** below, open it, and drag the app to Applications.
-
-            > First launch: right-click the app → Open (Gatekeeper unsigned app).
-          releaseDraft: false
+          releaseName: SSH GUI ${{ github.ref_name }}
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: true
           prerelease: false
+          args: --bundles app,dmg

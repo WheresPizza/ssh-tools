@@ -18,13 +18,15 @@ export function CopyToServerDialog({ keyName, hosts, onConfirm, onCancel }: Copy
         <p className="text-sm text-muted-foreground mb-4">
           Push <span className="font-mono">{keyName}.pub</span> to a server's authorized_keys
         </p>
+        <p className="text-xs text-muted-foreground mb-3">This appends the selected public key, even when another identity already grants access. Repeating it can add a duplicate entry. Complete authentication in the terminal.</p>
         <select
+          aria-label="Destination host"
           value={selected}
           onChange={(e) => setSelected(e.target.value)}
-          className="w-full px-2 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          className="input-field"
         >
           {hosts.map((h) => (
-            <option key={h.alias} value={h.alias}>
+            <option key={`${h.source_path}:${h.line_start}:${h.alias}`} value={h.alias}>
               {h.alias}{h.hostname ? ` (${h.hostname})` : ""}
             </option>
           ))}
@@ -32,14 +34,14 @@ export function CopyToServerDialog({ keyName, hosts, onConfirm, onCancel }: Copy
         <div className="flex gap-2 mt-4 justify-end">
           <button
             onClick={onCancel}
-            className="px-3 py-1.5 text-sm rounded border border-border hover:bg-accent transition-colors"
+            className="btn"
           >
             Cancel
           </button>
           <button
             onClick={() => onConfirm(selected)}
             disabled={!selected}
-            className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="btn btn-primary disabled:opacity-50"
           >
             Copy Key
           </button>

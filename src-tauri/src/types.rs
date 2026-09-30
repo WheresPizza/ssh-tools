@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SshHost {
+    #[serde(default)]
+    pub source_path: String,
+    #[serde(default)]
+    pub read_only: bool,
+    #[serde(default)]
+    pub can_reorder: bool,
+    #[serde(default)]
+    pub revision: String,
     pub alias: String,
     pub hostname: Option<String>,
     pub user: Option<String>,
@@ -20,16 +28,17 @@ pub struct SshKeyInfo {
     pub name: String,
     pub private_path: String,
     pub public_path: String,
+    pub public_key_exists: bool,
     pub algorithm: String,
     pub bits: Option<u32>,
     pub fingerprint: String,
     pub comment: Option<String>,
-    pub has_passphrase: bool,
+    pub has_passphrase: Option<bool>,
+    pub error: Option<String>,
     pub created_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub enum KeyAlgorithm {
     Ed25519,
     Rsa2048,
@@ -46,12 +55,14 @@ pub struct KeyGenParams {
     pub passphrase: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KnownHostEntry {
     pub line_number: u32,
     pub hostname: String,
     pub key_type: String,
     pub key_data: String,
+    #[serde(default)]
+    pub marker: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

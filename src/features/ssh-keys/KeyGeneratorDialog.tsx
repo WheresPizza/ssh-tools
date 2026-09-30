@@ -39,6 +39,7 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
 
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (generating) return;
     if (passphrase !== passphraseConfirm) {
       showToast("Passphrases do not match", "error");
       return;
@@ -69,8 +70,9 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
 
         <form onSubmit={handleGenerate} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1.5">Algorithm</label>
+            <label htmlFor="key-algorithm" className="block text-sm font-medium mb-1.5">Algorithm</label>
             <select
+              id="key-algorithm"
               value={algorithm}
               onChange={(e) => handleAlgorithmChange(e.target.value as KeyAlgorithm)}
               className="input-field"
@@ -81,19 +83,21 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Filename</label>
+            <label htmlFor="key-filename" className="block text-sm font-medium mb-1.5">Filename</label>
             <input
               required
+              id="key-filename"
               value={filename}
               onChange={(e) => setFilename(e.target.value)}
               placeholder="id_ed25519"
               className="input-field font-mono"
             />
-            <p className="text-xs text-muted-foreground mt-1">Saved to ~/.ssh/{filename}</p>
+            <p className="text-xs text-muted-foreground mt-1">Saved as {filename} in the active SSH workspace</p>
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Comment (optional)</label>
+            <label htmlFor="key-comment" className="block text-sm font-medium mb-1.5">Comment (optional)</label>
             <input
+              id="key-comment"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               placeholder="user@host"
@@ -101,9 +105,10 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
             />
           </div>
           <div>
-            <label className="block text-sm font-medium mb-1.5">Passphrase (optional)</label>
+            <label htmlFor="key-passphrase" className="block text-sm font-medium mb-1.5">Passphrase (optional)</label>
             <input
               type="password"
+              id="key-passphrase"
               value={passphrase}
               onChange={(e) => {
                 setPassphrase(e.target.value);
@@ -115,10 +120,11 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
           </div>
           {passphrase && (
             <div>
-              <label className="block text-sm font-medium mb-1.5">Confirm Passphrase</label>
+              <label htmlFor="key-passphraseConfirm" className="block text-sm font-medium mb-1.5">Confirm Passphrase</label>
               <input
                 type="password"
-                value={passphraseConfirm}
+                id="key-passphraseConfirm"
+              value={passphraseConfirm}
                 onChange={(e) => setPassphraseConfirm(e.target.value)}
                 placeholder="Confirm passphrase"
                 className="input-field"
@@ -130,14 +136,15 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
             <button
               type="submit"
               disabled={generating}
-              className="flex-1 py-2 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors font-medium disabled:opacity-50"
+              className="btn btn-primary flex-1 disabled:opacity-50"
             >
               {generating ? "Generating..." : "Generate"}
             </button>
             <button
               type="button"
+              disabled={generating}
               onClick={onCancel}
-              className="px-4 py-2 text-sm rounded-md border border-border hover:bg-accent transition-colors"
+              className="btn"
             >
               Cancel
             </button>

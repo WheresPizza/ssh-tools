@@ -1,5 +1,10 @@
+pub mod agent_policy;
 pub mod app;
+pub mod diagnostics;
+pub mod key_import;
 pub mod known_hosts;
 pub mod launcher;
+pub mod profiles;
+pub mod repositories;
 pub mod ssh_config;
 pub mod ssh_keys;

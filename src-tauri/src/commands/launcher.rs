@@ -7,31 +7,28 @@ use std::sync::Mutex;
 
 pub static PREFERRED_TERMINAL: Mutex<Option<String>> = Mutex::new(None);
 
-#[tauri::command]
-pub fn launch_ssh_connection(host_alias: String) -> Result<()> {
-    let terminals = detect_terminals();
-
-    let preferred = PREFERRED_TERMINAL.lock().unwrap().clone();
-    let terminal = preferred
-        .as_deref()
-        .and_then(|p| terminals.iter().find(|t| t.name == p || t.path == p))
-        .or_else(|| terminals.first())
-        .ok_or_else(|| AppError::NotFound("No terminal found".to_string()))?;
-
-    let ssh_command = format!("ssh {}", host_alias);
-    let (program, args) = build_launch_args(&terminal.name, &ssh_command);
-
-    Command::new(&program)
-        .args(&args)
-        .spawn()
-        .map_err(|e| AppError::Process(format!("Failed to launch terminal '{}': {}", program, e)))?;
-
-    Ok(())
+#[tauri::command(rename_all = "snake_case")]
+pub async fn launch_ssh_connection(host_alias: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || launch_ssh_connection_blocking(host_alias))
+        .await
+        .map_err(|e| crate::error::AppError::Process(format!("Background operation failed: {e}")))?
 }
 
-#[tauri::command]
+fn launch_ssh_connection_blocking(host_alias: String) -> Result<()> {
+    validate_destination(&host_alias)?;
+    launch_terminal_command(&format!(
+        "ssh -F {} -- {}",
+        shell_quote(&crate::utils::ssh_dir::get_ssh_config_path()?.to_string_lossy()),
+        shell_quote(&host_alias)
+    ))
+}
+
+#[tauri::command(rename_all = "snake_case")]
 pub fn get_detected_terminal() -> Result<Vec<TerminalInfo>> {
-    let preferred = PREFERRED_TERMINAL.lock().unwrap().clone();
+    let preferred = PREFERRED_TERMINAL
+        .lock()
+        .map_err(|_| AppError::Process("Terminal preference unavailable".into()))?
+        .clone();
     let mut terminals = detect_terminals();
 
     // Mark preferred
@@ -41,47 +38,148 @@ pub fn get_detected_terminal() -> Result<Vec<TerminalInfo>> {
                 t.is_preferred = true;
             }
         }
-    } else if let Some(t) = terminals.first_mut() {
-        t.is_preferred = true;
+    }
+    if !terminals.iter().any(|t| t.is_preferred) {
+        if let Some(t) = terminals.first_mut() {
+            t.is_preferred = true;
+        }
     }
 
     Ok(terminals)
 }
 
-#[tauri::command]
+#[tauri::command(rename_all = "snake_case")]
 pub fn set_preferred_terminal(terminal: String) -> Result<()> {
-    {
-        let mut pref = PREFERRED_TERMINAL.lock().unwrap();
-        *pref = Some(terminal.clone());
+    if !detect_terminals().iter().any(|t| t.name == terminal) {
+        return Err(AppError::InvalidInput(
+            "Select an installed supported terminal".into(),
+        ));
     }
     let mut config = get_app_config()?;
-    config.preferred_terminal = Some(terminal);
+    config.preferred_terminal = Some(terminal.clone());
     save_app_config(config)?;
+    *PREFERRED_TERMINAL
+        .lock()
+        .map_err(|_| AppError::Process("Terminal preference unavailable".into()))? = Some(terminal);
     Ok(())
 }
 
-#[tauri::command]
-pub fn copy_key_to_server(key_path: String, host_alias: String) -> Result<()> {
+#[tauri::command(rename_all = "snake_case")]
+pub async fn copy_key_to_server(key_path: String, host_alias: String) -> Result<()> {
+    tauri::async_runtime::spawn_blocking(move || copy_key_to_server_blocking(key_path, host_alias))
+        .await
+        .map_err(|e| crate::error::AppError::Process(format!("Background operation failed: {e}")))?
+}
+
+fn copy_key_to_server_blocking(key_path: String, host_alias: String) -> Result<()> {
+    validate_destination(&host_alias)?;
+    crate::utils::ssh_dir::validate_key_path(&key_path)?;
     let pub_path = format!("{}.pub", key_path);
+    crate::utils::permissions::reject_symlink(std::path::Path::new(&pub_path))?;
+    let public = crate::commands::ssh_keys::get_public_key_blocking(key_path.clone())?;
     if !std::path::Path::new(&pub_path).exists() {
-        return Err(AppError::NotFound(format!("Public key not found: {}", pub_path)));
+        use std::io::Write;
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o644);
+        }
+        let mut file = options.open(&pub_path)?;
+        writeln!(file, "{public}")?;
+        file.sync_all()?;
     }
 
-    let cmd = format!("ssh-copy-id -i {} {}", pub_path, host_alias);
+    let cmd = format!(
+        "ssh-copy-id -f -F {} -i {} {}",
+        shell_quote(&crate::utils::ssh_dir::get_ssh_config_path()?.to_string_lossy()),
+        shell_quote(&pub_path),
+        shell_quote(&host_alias)
+    );
 
-    let terminals = detect_terminals();
-    let preferred = PREFERRED_TERMINAL.lock().unwrap().clone();
-    let terminal = preferred
-        .as_deref()
-        .and_then(|p| terminals.iter().find(|t| t.name == p || t.path == p))
-        .or_else(|| terminals.first())
-        .ok_or_else(|| AppError::NotFound("No terminal found".to_string()))?;
+    launch_terminal_command(&cmd)
+}
 
-    let (program, args) = build_launch_args(&terminal.name, &cmd);
-    Command::new(&program)
-        .args(&args)
-        .spawn()
-        .map_err(|e| AppError::Process(format!("Failed to launch terminal: {}", e)))?;
+/// POSIX shell quoting; AppleScript escaping is a separate layer in terminal.rs.
+pub fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\"'\"'"))
+}
 
+pub fn validate_destination(value: &str) -> Result<()> {
+    if value.is_empty()
+        || value.starts_with('-')
+        || value
+            .chars()
+            .any(|c| !c.is_alphanumeric() && !"._-:@[]%".contains(c))
+    {
+        return Err(AppError::InvalidInput(
+            "Select a single SSH host alias, not a pattern or option".into(),
+        ));
+    }
     Ok(())
+}
+
+pub fn launch_terminal_command(command: &str) -> Result<()> {
+    #[cfg(test)]
+    if let Some(path) = std::env::var_os("SSH_GUI_CAPTURE_TERMINAL") {
+        std::fs::write(path, command)?;
+        return Ok(());
+    }
+    let terminals = detect_terminals();
+    let preferred = PREFERRED_TERMINAL
+        .lock()
+        .map_err(|_| AppError::Process("Terminal preference unavailable".into()))?
+        .clone();
+    let terminal = terminals
+        .iter()
+        .find(|t| {
+            preferred.as_deref() == Some(t.name.as_str())
+                || preferred.as_deref() == Some(t.path.as_str())
+        })
+        .or_else(|| terminals.first())
+        .ok_or_else(|| AppError::NotFound("No terminal found".into()))?;
+    let (program, args) = build_launch_args(&terminal.name, command);
+    if program == "osascript" {
+        let result = Command::new(program).args(args).output()?;
+        if !result.status.success() {
+            return Err(AppError::Process(
+                String::from_utf8_lossy(&result.stderr).trim().into(),
+            ));
+        }
+    } else {
+        Command::new(program).args(args).spawn()?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn shell_metacharacters_are_literal() {
+        let value = "key with ' quote; $(echo bad) `echo bad` \\";
+        let output = Command::new("sh")
+            .args(["-c", &format!("printf %s {}", shell_quote(value))])
+            .output()
+            .unwrap();
+        assert_eq!(String::from_utf8(output.stdout).unwrap(), value);
+    }
+    #[test]
+    fn rejects_options_and_patterns() {
+        for alias in [
+            "",
+            "-oProxyCommand=bad",
+            "*",
+            "one two",
+            "!excluded",
+            "host;id",
+            "$(id)",
+            "user@host|id",
+            "host/path",
+        ] {
+            assert!(validate_destination(alias).is_err());
+        }
+        assert!(validate_destination("github-work").is_ok());
+    }
 }

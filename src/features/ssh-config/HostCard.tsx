@@ -1,3 +1,4 @@
+import { isConnectableAlias } from "../../lib/ssh-host-utils";
 import { useState } from "react";
 import { GripVertical } from "lucide-react";
 import type { SshHost } from "../../lib/tauri";
@@ -20,7 +21,7 @@ export function HostCard({ host, lastConnected, onEdit, onDelete, onConnect, onD
   return (
     <>
       <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors group">
-        <div {...dragHandleProps} className="cursor-grab text-muted-foreground/40 hover:text-muted-foreground shrink-0 touch-none">
+        <div aria-label="Reorder host" {...dragHandleProps} className="cursor-grab text-muted-foreground/40 hover:text-muted-foreground shrink-0 touch-none">
           <GripVertical size={14} />
         </div>
         <div className="flex-1 min-w-0">
@@ -39,41 +40,44 @@ export function HostCard({ host, lastConnected, onEdit, onDelete, onConnect, onD
               .filter(Boolean)
               .join("")}
           </div>
+          {host.source_path && <div className="text-xs text-muted-foreground truncate" title={host.source_path}>{host.source_path}{host.read_only ? " · read-only" : ""}</div>}
           {host.identity_file.length > 0 && (
-            <div className="text-xs text-muted-foreground/70 mt-0.5 truncate font-mono">
+            <div className="text-xs text-muted-foreground mt-0.5 truncate font-mono">
               {host.identity_file[0]}
             </div>
           )}
           {lastConnected && (
-            <div className="text-xs text-muted-foreground/60 mt-0.5">
-              Last connected {formatTimeAgo(lastConnected)}
+            <div className="text-xs text-muted-foreground mt-0.5">
+              Last launched {formatTimeAgo(lastConnected)}
             </div>
           )}
         </div>
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-          {host.hostname !== null && (
+        <div className="flex gap-1 opacity-100 transition-opacity shrink-0">
+          {isConnectableAlias(host.alias) && (
             <button
               onClick={onConnect}
-              className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+              className="btn btn-compact"
             >
               Connect
             </button>
           )}
           <button
+            disabled={host.read_only}
             onClick={onEdit}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+            className="btn btn-compact"
           >
             Edit
           </button>
           <button
             onClick={onDuplicate}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+            className="btn btn-compact"
           >
             Duplicate
           </button>
           <button
+            disabled={host.read_only}
             onClick={() => setConfirmDelete(true)}
-            className="px-2 py-1 text-xs rounded border border-destructive/50 text-destructive hover:bg-destructive/10 transition-colors"
+            className="btn btn-danger btn-compact"
           >
             Delete
           </button>

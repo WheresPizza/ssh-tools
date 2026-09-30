@@ -1,6 +1,6 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
-import type { SshHost, SshKeyInfo, KnownHostEntry, TerminalInfo } from "../lib/tauri";
+import { createJSONStorage, persist } from "zustand/middleware";
+import type { SshHost, SshKeyInfo, KnownHostEntry } from "../lib/tauri";
 
 interface SshConfigSlice {
   hosts: SshHost[];
@@ -23,12 +23,10 @@ interface KnownHostsSlice {
   setKnownHostsLoading: (v: boolean) => void;
 }
 
-interface LauncherSlice {
-  terminals: TerminalInfo[];
-  setTerminals: (terminals: TerminalInfo[]) => void;
-}
-
 interface UiSlice {
+  diagnosticAlias: string;
+  diagnosticPort: number | null;
+  openDiagnostics: (alias: string, port?: number | null) => void;
   activeTab: string;
   setActiveTab: (tab: string) => void;
   toast: { message: string; type: "success" | "error" | "info" } | null;
@@ -39,7 +37,7 @@ interface UiSlice {
 }
 
 export const useStore = create<
-  SshConfigSlice & SshKeysSlice & KnownHostsSlice & LauncherSlice & UiSlice
+  SshConfigSlice & SshKeysSlice & KnownHostsSlice & UiSlice
 >()(
   persist(
     (set) => ({
@@ -61,11 +59,10 @@ export const useStore = create<
       setKnownHosts: (knownHosts) => set({ knownHosts }),
       setKnownHostsLoading: (knownHostsLoading) => set({ knownHostsLoading }),
 
-      // Launcher
-      terminals: [],
-      setTerminals: (terminals) => set({ terminals }),
-
       // UI
+      diagnosticAlias: "",
+      diagnosticPort: null,
+      openDiagnostics: (diagnosticAlias, diagnosticPort = null) => set({ diagnosticAlias, diagnosticPort, activeTab: "diagnostics" }),
       activeTab: "ssh-config",
       setActiveTab: (activeTab) => set({ activeTab }),
       toast: null,
@@ -79,6 +76,8 @@ export const useStore = create<
     }),
     {
       name: "ssh-gui-storage",
+      skipHydration: true,
+      storage: createJSONStorage(() => window.localStorage),
       partialize: (state) => ({ activeTab: state.activeTab, connectionHistory: state.connectionHistory }),
     }
   )

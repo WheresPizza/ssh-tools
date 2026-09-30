@@ -1,0 +1,21 @@
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+const root = fileURLToPath(new URL('../', import.meta.url));
+const read = path => readFileSync(resolve(root, path), 'utf8');
+const json = path => JSON.parse(read(path));
+const version = json('package.json').version;
+const lock = json('package-lock.json');
+const crate = read('src-tauri/Cargo.toml').match(/\[package\]([\s\S]*?)(?=\n\[)/)?.[1];
+const cargoVersion = crate?.match(/^version = "([^"]+)"/m)?.[1];
+const lockedVersion = read('src-tauri/Cargo.lock').match(/\[\[package\]\]\nname = "ssh-gui"\nversion = "([^"]+)"/)?.[1];
+const versions = { npmLock: lock.version, npmRoot: lock.packages[''].version, cargo: cargoVersion, cargoLock: lockedVersion, tauri: json('src-tauri/tauri.conf.json').version };
+const failures = [];
+for (const [source, found] of Object.entries(versions)) if (found !== version) failures.push(`${source}: expected ${version}, got ${found}`);
+const tag = process.env.RELEASE_TAG;
+if (tag && tag !== `v${version}`) failures.push(`Tag ${tag} does not match v${version}`);
+if (!read('CHANGELOG.md').split('\n').includes(`## ${version}`)) failures.push('Missing matching changelog heading');
+const required = [`docs/releases/${version}.md`, 'README.md', 'LICENSE', 'SECURITY.md', 'CONTRIBUTING.md', 'docs/USER_GUIDE.md', 'docs/DEVELOPMENT.md', 'docs/BEHAVIOR.md', 'docs/RELEASING.md', 'docs/SCREEN_OWNERSHIP.md', 'docs/INTERFACE_GUIDELINES.md', 'public/app-icon.svg', 'src-tauri/icons/tray-icon.png', ...json('src-tauri/tauri.conf.json').bundle.icon.map(p => `src-tauri/${p}`)];
+for (const path of required) if (!existsSync(resolve(root, path))) failures.push(`Missing ${path}`);
+if (failures.length) { console.error(failures.join('\n')); process.exit(1); }
+console.log(`Release metadata and assets verified for v${version}${tag ? ` (tag ${tag})` : ''}. Tests, audits and signing checks are separate.`);

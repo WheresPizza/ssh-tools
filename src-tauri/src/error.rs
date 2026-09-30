@@ -3,6 +3,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum AppError {
+    #[error("SSH Agent is not available. Start an agent and launch SSH GUI with its SSH_AUTH_SOCK environment.")]
+    AgentUnavailable,
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
     #[error("SSH key error: {0}")]

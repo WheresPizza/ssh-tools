@@ -1,10 +1,17 @@
+import { isConnectableAlias } from "../../lib/ssh-host-utils";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { AgentOptionsDialog } from "./AgentOptionsDialog";
+import { listAgentEnrollments, type AgentOptions, type AgentEnrollment } from "../../lib/tauri";
+import { PermissionsAudit } from "./PermissionsAudit";
+import { getSshConfig } from "../../lib/tauri";
 import { useEffect, useCallback, useState } from "react";
-import { listen } from "@tauri-apps/api/event";
+import { subscribe } from "../../lib/events";
 import { useShallow } from "zustand/react/shallow";
 import { listSshKeys, deleteSshKey, getPublicKey, copyKeyToServer, listAgentKeys, addKeyToAgent, removeKeyFromAgent } from "../../lib/tauri";
 import type { SshKeyInfo } from "../../lib/tauri";
 import { useStore } from "../../stores";
 import { KeyList } from "./KeyList";
+import { KeyImportDialog } from "./KeyImportDialog";
 import { KeyGeneratorDialog } from "./KeyGeneratorDialog";
 import { CopyToServerDialog } from "./CopyToServerDialog";
 import { EmptyState } from "../../components/common/EmptyState";
@@ -21,16 +28,25 @@ export function SshKeysPage() {
     }))
   );
 
+  const [search, setSearch] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [showImporter, setShowImporter] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
   const [copyToServerKey, setCopyToServerKey] = useState<SshKeyInfo | null>(null);
+  const [agentKey, setAgentKey] = useState<SshKeyInfo | null>(null);
+  const [enrollments, setEnrollments] = useState<AgentEnrollment[]>([]);
+  const [agentError, setAgentError] = useState<string | null>(null);
   const [agentFingerprints, setAgentFingerprints] = useState<string[]>([]);
 
   const loadAgentKeys = useCallback(async () => {
     try {
       const fps = await listAgentKeys();
       setAgentFingerprints(fps);
-    } catch {
-      // silently ignore — agent may not be running
+      setEnrollments(await listAgentEnrollments());
+      setAgentError(null);
+    } catch (error) {
+      setAgentFingerprints([]);
+      setAgentError(String(error));
     }
   }, []);
 
@@ -47,59 +63,78 @@ export function SshKeysPage() {
   }, [setKeys, setKeysLoading, showToast]);
 
   useEffect(() => {
+    const loadHosts = () => getSshConfig().then(useStore.getState().setHosts).catch(e => showToast(`Failed to load hosts: ${e}`, "error"));
+    void loadHosts();
+    return subscribe("ssh-config-changed", loadHosts);
+  }, [showToast]);
+
+  useEffect(() => {
+    const refresh = () => { void loadAgentKeys(); };
+    const interval = window.setInterval(refresh, 15000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+  }, [loadAgentKeys]);
+
+  useEffect(() => {
     loadKeys();
     loadAgentKeys();
   }, [loadKeys, loadAgentKeys]);
 
   useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    listen("ssh-keys-changed", () => loadKeys()).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    return subscribe("ssh-keys-changed", () => loadKeys());
   }, [loadKeys]);
 
-  const handleDelete = async (keyPath: string, name: string) => {
+  const handleDelete = async (keyPath: string, name: string, fingerprint: string) => {
+    if (busy) return;
+    setBusy(true);
     try {
-      await deleteSshKey(keyPath);
+      await deleteSshKey(keyPath, fingerprint);
       showToast(`Key '${name}' deleted`, "success");
       loadKeys();
+      loadAgentKeys();
     } catch (e) {
       showToast(`Failed to delete key: ${e}`, "error");
-    }
+    } finally { setBusy(false); }
   };
 
   const handleCopyPublicKey = async (keyPath: string) => {
     try {
       const pubKey = await getPublicKey(keyPath);
-      await navigator.clipboard.writeText(pubKey);
+      await writeText(pubKey);
       showToast("Public key copied to clipboard", "success");
     } catch (e) {
       showToast(`Failed to copy key: ${e}`, "error");
     }
   };
 
-  const handleAddToAgent = async (key: SshKeyInfo) => {
+  const handleAddToAgent = async (key: SshKeyInfo, options: AgentOptions) => {
+    if (busy) return;
+    setBusy(true);
+    setAgentKey(null);
     try {
-      await addKeyToAgent(key.private_path);
-      showToast(`Key '${key.name}' added to agent`, "success");
+      const added = await addKeyToAgent(key.private_path, options);
+      showToast(added ? `Key '${key.name}' added to agent` : "Enter the key passphrase in the terminal, then return here", added ? "success" : "info");
       loadAgentKeys();
     } catch (e) {
       showToast(`Failed to add key to agent: ${e}`, "error");
-    }
+    } finally { setBusy(false); }
   };
 
   const handleRemoveFromAgent = async (key: SshKeyInfo) => {
+    if (busy) return;
+    setBusy(true);
     try {
       await removeKeyFromAgent(key.private_path);
       showToast(`Key '${key.name}' removed from agent`, "success");
       loadAgentKeys();
     } catch (e) {
       showToast(`Failed to remove key from agent: ${e}`, "error");
-    }
+    } finally { setBusy(false); }
   };
 
   const handleCopyToServerClick = (key: SshKeyInfo) => {
-    if (hosts.length === 0) {
-      showToast("Add SSH hosts in the SSH Config tab first", "info");
+    if (!hosts.some(h => isConnectableAlias(h.alias))) {
+      showToast("Add SSH hosts in the SSH Hosts screen first", "info");
       return;
     }
     setCopyToServerKey(key);
@@ -107,12 +142,15 @@ export function SshKeysPage() {
 
   const handleCopyToServer = async (hostAlias: string) => {
     if (!copyToServerKey) return;
+    if (busy) return;
+    setBusy(true);
     try {
       await copyKeyToServer(copyToServerKey.private_path, hostAlias);
       showToast(`Opening terminal to copy ${copyToServerKey.name} to ${hostAlias}`, "success");
     } catch (e) {
       showToast(`Failed: ${e}`, "error");
     } finally {
+      setBusy(false);
       setCopyToServerKey(null);
     }
   };
@@ -122,16 +160,24 @@ export function SshKeysPage() {
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-lg font-semibold">SSH Keys</h2>
-          <p className="text-sm text-muted-foreground">~/.ssh/</p>
+          <p className="text-sm text-muted-foreground">Private key files, public keys and SSH agent access.</p>
         </div>
+        <div className="flex gap-2"><button className="btn" onClick={() => setShowImporter(true)}>Import Key</button>
         <button
           onClick={() => setShowGenerator(true)}
-          className="px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors font-medium"
+          className="btn btn-primary"
         >
           Generate Key
-        </button>
+        </button></div>
       </div>
 
+      <PermissionsAudit />
+      {agentError && <p role="status" className="mb-4 rounded border border-border p-3 text-sm">{agentError}</p>}
+      <div className="flex gap-2 mb-4">
+        <input type="search" aria-label="Search keys" className="input-field flex-1" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search keys, comments or fingerprints…" />
+        <button onClick={() => { void loadKeys(); void loadAgentKeys(); }} className="btn">Refresh</button>
+      </div>
+      <fieldset disabled={busy} className="min-w-0">
       {keysLoading ? (
         <div className="flex items-center justify-center py-16">
           <div className="text-muted-foreground text-sm">Loading...</div>
@@ -143,24 +189,30 @@ export function SshKeysPage() {
           action={
             <button
               onClick={() => setShowGenerator(true)}
-              className="px-3 py-1.5 bg-primary text-primary-foreground text-sm rounded-md hover:bg-primary/90 transition-colors"
+              className="btn btn-primary"
             >
               Generate Key
             </button>
           }
         />
+      ) : keys.filter(k => `${k.name} ${k.comment ?? ""} ${k.fingerprint}`.toLowerCase().includes(search.toLowerCase())).length === 0 ? (
+        <EmptyState title="No matching keys" description="Try a different name, comment or fingerprint." />
       ) : (
         <KeyList
-          keys={keys}
+          keys={keys.filter(k => `${k.name} ${k.comment ?? ""} ${k.fingerprint}`.toLowerCase().includes(search.toLowerCase()))}
           agentFingerprints={agentFingerprints}
+          enrollments={enrollments}
           onDelete={handleDelete}
           onCopyPublicKey={handleCopyPublicKey}
           onCopyToServer={handleCopyToServerClick}
-          onAddToAgent={handleAddToAgent}
+          onAddToAgent={setAgentKey}
           onRemoveFromAgent={handleRemoveFromAgent}
         />
       )}
 
+      </fieldset>
+      {agentKey && <AgentOptionsDialog keyName={agentKey.name} onConfirm={options => handleAddToAgent(agentKey, options)} onCancel={() => setAgentKey(null)} />}
+      {showImporter && <KeyImportDialog onClose={() => setShowImporter(false)} onImported={() => { setShowImporter(false); void loadKeys(); }} />}
       {showGenerator && (
         <KeyGeneratorDialog
           onClose={() => { setShowGenerator(false); loadKeys(); }}
@@ -171,7 +223,7 @@ export function SshKeysPage() {
       {copyToServerKey && (
         <CopyToServerDialog
           keyName={copyToServerKey.name}
-          hosts={hosts}
+          hosts={hosts.filter(h => isConnectableAlias(h.alias))}
           onConfirm={handleCopyToServer}
           onCancel={() => setCopyToServerKey(null)}
         />

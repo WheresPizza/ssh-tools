@@ -1,10 +1,13 @@
 import { useState } from "react";
-import type { SshKeyInfo } from "../../lib/tauri";
-import { ConfirmDialog } from "../../components/common/ConfirmDialog";
+import { restorePublicKey } from "../../lib/tauri";
+import { useStore } from "../../stores";
+import type { SshKeyInfo, AgentEnrollment } from "../../lib/tauri";
+import { KeyUsageDialog } from "./KeyUsageDialog";
 
 interface KeyCardProps {
   keyInfo: SshKeyInfo;
   agentFingerprints: string[];
+  enrollment?: AgentEnrollment;
   onDelete: () => void;
   onCopyPublicKey: () => void;
   onCopyToServer: () => void;
@@ -18,13 +21,13 @@ const ALG_LABELS: Record<string, string> = {
   ecdsa: "ECDSA",
 };
 
-export function KeyCard({ keyInfo, agentFingerprints, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
+export function KeyCard({ keyInfo, agentFingerprints, enrollment, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isInAgent = agentFingerprints.includes(keyInfo.fingerprint);
 
   return (
     <>
-      <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors group">
+      <div className="flex flex-wrap items-center gap-3 p-3 rounded-lg border border-border bg-card hover:bg-accent/40 transition-colors group">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className="font-mono text-sm font-semibold text-foreground">{keyInfo.name}</span>
@@ -33,8 +36,8 @@ export function KeyCard({ keyInfo, agentFingerprints, onDelete, onCopyPublicKey,
               {keyInfo.bits && ` ${keyInfo.bits}`}
             </span>
             {keyInfo.has_passphrase && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                🔒 passphrase
+              <span className="text-xs px-1.5 py-0.5 rounded bg-success/10 text-success">
+                passphrase
               </span>
             )}
             {isInAgent && (
@@ -46,58 +49,61 @@ export function KeyCard({ keyInfo, agentFingerprints, onDelete, onCopyPublicKey,
           <div className="text-xs text-muted-foreground mt-0.5 font-mono truncate">
             {keyInfo.fingerprint}
           </div>
+          {enrollment && <p className="text-xs text-muted-foreground mt-1">Last {enrollment.interactive ? "requested in terminal" : "added here"}: {enrollment.lifetime_seconds ? `${Math.ceil(enrollment.lifetime_seconds / 60)} min limit` : "agent default lifetime"}{enrollment.confirm ? "; confirm every use" : ""}. Current restrictions cannot be queried from OpenSSH.</p>}
+          {isInAgent && !enrollment && <p className="text-xs text-muted-foreground mt-1">Loaded outside this app session; lifetime and confirmation policy unknown.</p>}
+          {keyInfo.error && <p role="status" className="text-xs text-destructive mt-1">{keyInfo.error}</p>}
           {keyInfo.comment && (
-            <div className="text-xs text-muted-foreground/70 mt-0.5 truncate">{keyInfo.comment}</div>
+            <div className="text-xs text-muted-foreground mt-0.5 truncate">{keyInfo.comment}</div>
           )}
           {keyInfo.created_at && (
-            <div className="text-xs text-muted-foreground/50 mt-0.5">{keyInfo.created_at}</div>
+            <div className="text-xs text-muted-foreground mt-0.5">{keyInfo.created_at}</div>
           )}
         </div>
-        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+        <fieldset disabled={!!keyInfo.error} className="flex flex-wrap gap-1 opacity-100 transition-opacity">
+          {keyInfo.public_key_exists === false && <button className="btn btn-compact" onClick={() => {
+            restorePublicKey(keyInfo.private_path, keyInfo.fingerprint).then(() => useStore.getState().showToast("Public companion restored", "success")).catch(e => useStore.getState().showToast(`Cannot restore public key: ${e}`, "error"));
+          }}>Restore .pub</button>}
           <button
             onClick={onCopyPublicKey}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+            className="btn btn-compact"
           >
             Copy Pub Key
           </button>
           <button
             onClick={onCopyToServer}
-            className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+            className="btn btn-compact"
           >
             Copy to Server
           </button>
           {isInAgent ? (
             <button
               onClick={onRemoveFromAgent}
-              className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+              className="btn btn-compact"
             >
               Remove from Agent
             </button>
           ) : (
             <button
               onClick={onAddToAgent}
-              className="px-2 py-1 text-xs rounded border border-border hover:bg-accent transition-colors"
+              className="btn btn-compact"
             >
               Add to Agent
             </button>
           )}
           <button
             onClick={() => setConfirmDelete(true)}
-            className="px-2 py-1 text-xs rounded border border-destructive/50 text-destructive hover:bg-destructive/10 transition-colors"
+            className="btn btn-danger btn-compact"
           >
             Delete
           </button>
-        </div>
+        </fieldset>
       </div>
 
       {confirmDelete && (
-        <ConfirmDialog
-          title="Delete Key"
-          description={`Delete key pair '${keyInfo.name}'? Both private and public key files will be removed.`}
-          onConfirm={() => { setConfirmDelete(false); onDelete(); }}
+        <KeyUsageDialog
+          keyInfo={keyInfo}
+          onDelete={() => { setConfirmDelete(false); onDelete(); }}
           onCancel={() => setConfirmDelete(false)}
-          confirmLabel="Delete"
-          destructive
         />
       )}
     </>

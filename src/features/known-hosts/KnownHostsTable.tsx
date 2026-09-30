@@ -16,7 +16,7 @@ function VerifyStatusIcon({ status }: { status: VerifyState }) {
     return <span className="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin text-muted-foreground" />;
   }
   if (status === 'match') {
-    return <span className="text-green-600 dark:text-green-400 font-bold">✓</span>;
+    return <span className="text-success dark:text-green-400 font-bold">✓</span>;
   }
   if (status === 'mismatch') {
     return <span className="text-red-600 dark:text-red-400 font-bold">✗</span>;
@@ -26,7 +26,7 @@ function VerifyStatusIcon({ status }: { status: VerifyState }) {
 
 export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyStatus, onVerify }: KnownHostsTableProps) {
   const toggleAll = () => {
-    if (selected.size === entries.length) {
+    if (entries.every(e => selected.has(e.line_number))) {
       onSelect(new Set());
     } else {
       onSelect(new Set(entries.map((e) => e.line_number)));
@@ -51,7 +51,7 @@ export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyS
             <th className="w-10 p-3 text-left">
               <input
                 type="checkbox"
-                checked={selected.size === entries.length && entries.length > 0}
+                checked={entries.every(e => selected.has(e.line_number)) && entries.length > 0}
                 onChange={toggleAll}
                 className="rounded"
               />
@@ -76,26 +76,26 @@ export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyS
                 />
               </td>
               <td className="p-3 font-mono text-xs text-foreground break-all">
-                {entry.hostname}
+                {entry.marker && <span className="mr-2 text-muted-foreground">{entry.marker}</span>}{entry.hostname}
               </td>
               <td className="p-3 text-xs text-muted-foreground">{entry.key_type}</td>
               <td className="p-3 text-right">
                 <div className="flex items-center justify-end gap-2">
-                  {!entry.hostname.startsWith("|1|") && (
+                  {!entry.marker && !entry.hostname.startsWith("|1|") && (
                     verifyStatus[entry.line_number] ? (
                       <VerifyStatusIcon status={verifyStatus[entry.line_number]} />
                     ) : (
                       <button
                         onClick={() => onVerify(entry)}
-                        className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        className="btn btn-compact text-muted-foreground hover:text-foreground hover:underline"
                       >
-                        Verify
+                        Compare key
                       </button>
                     )
                   )}
                   <button
                     onClick={() => onDelete(entry.line_number)}
-                    className="text-xs text-destructive hover:underline"
+                    className="btn btn-danger btn-compact hover:underline"
                   >
                     Remove
                   </button>
