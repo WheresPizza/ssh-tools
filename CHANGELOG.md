@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.2
+
+- Added **Replace key references** in key details: choose a new identity, inspect host/profile references, select changes, review before/after values and apply after acknowledging public-key registration.
+- Preserve old key files, agent enrollment, annotations, Git profile aliases and repository URLs. Copies of the same identity cannot be selected as replacements.
+- Detect stale keys/configuration, refuse altered plans and keep ambiguous/global/Match/wildcard references and external includes read-only in the wizard.
+- Stage changes and per-file recovery backups before writing. On a write failure, attempt rollback without overwriting concurrent external edits; report any files needing manual recovery.
+- Added frontend workflow tests, real IPC replacement checks and simulated multi-file write-failure coverage.
+- Includes the 0.3.1 navigation and repository-access changes below; 0.3.1 was not published separately.
+
+## 0.3.1
+
+- Removed the standalone Repositories screen; repository relationships and shared project-folder coverage now live in key details. Existing scan roots are retained and saved navigation migrates to SSH Keys.
+- Added reviewed access setup for an existing repository through a Git profile assigned to the selected key. Preview the remote URL, then explicitly apply it; retain a previous-config backup.
+- Refuse conflicting SSH overrides, complex Git configuration, incompatible destinations and stale plans. Discovery stays read-only, and setup does not contact servers.
+- Reuse the key’s reference scan rather than scanning all project folders a second time.
+- Updated navigation, user guide, behavior and screen ownership documentation.
+
 ## 0.3.0
 
 - Key details show fingerprints, files sharing an identity, agent state and local references.

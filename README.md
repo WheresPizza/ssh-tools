@@ -11,16 +11,16 @@ Built with **Tauri, Rust, React and TypeScript**, with a terminal-inspired inter
 
 | Screen | What it does |
 | --- | --- |
-| **Repositories** | Discover Git repositories in selected folders and inspect remote → SSH alias → profile/key relationships. Scanning is read-only. |
 | **Git Profiles** | Separate work, personal and client accounts with named profiles, dedicated SSH aliases, key selection and account-specific clone URLs. |
 | **SSH Hosts** | Add, edit, duplicate, search and reorder configuration blocks, inspect included files, and open connections in your terminal. |
-| **SSH Keys** | Generate Ed25519, RSA or ECDSA keys; import existing keys; copy or recover public keys; inspect permissions and references before deletion. Inspect key details, organize with shared tags/notes, and run a read-only local audit. |
+| **SSH Keys** | Generate Ed25519, RSA or ECDSA keys; import existing keys; copy or recover public keys; inspect permissions and references before deletion. Inspect key details, organize with shared tags/notes, and run a read-only local audit. Check repository references, set up access through this key’s Git profile alias, and replace selected host/profile key references with a reviewed wizard. |
 | **Trusted Hosts** | Inspect server identities in `known_hosts`, compare stored keys with a network scan, and remove selected trust records. |
 | **Diagnostics** | Inspect effective OpenSSH settings and agent availability, then explicitly test public-key authentication with a bounded timeout. |
 | **Settings** | Choose your terminal and review or restore the previous version of supported SSH configuration/trust files. |
 
 Key management also includes:
 
+- **Key replacement:** choose a new identity, select explicit host/profile references, review the changes, and apply with recovery backups. The old key is retained.
 - **Agent policies:** one hour, eight hours, a time today or the agent default; optional confirmation for every use.
 - **Encrypted keys:** passphrase-protected generation and imports that retain their original protection. Agent enrollment prompts in the terminal.
 - **Duplicate-aware import:** fingerprint checks, reviewed-source validation and no silent overwriting of existing files.
@@ -40,7 +40,7 @@ The app uses the OpenSSH tools on your machine. Key installation additionally ne
 1. Open **SSH Keys** and generate or import a key.
 2. Register its **public** key with your Git provider, then create a **Git Profile** that selects it.
 3. Enter `owner/repository` in Git Profiles and copy the clone URL for the account you want.
-4. Add your project folder in **Repositories** to inspect local relationships.
+4. Open the key’s **Details → Project folders** to inspect local relationships. For an existing checkout, use **Set up repository access**, select its remote and a profile, then review and apply the URL change.
 5. Use **Diagnose** to review configuration. Run **Test authentication** when you want to contact the server.
 
 For servers, create a connection in **SSH Hosts** and use **Connect**. Configure your preferred terminal in Settings.
@@ -49,7 +49,7 @@ For servers, create a connection in **SSH Hosts** and use **Connect**. Configure
 
 - SSH configuration and keys normally remain in `~/.ssh`; preferences and UI history are stored locally.
 - Repository scans show **configured key candidates**, not proof that a particular key authenticated successfully.
-- Saving a Git profile does not create a provider account, upload a key or rewrite Git remotes.
+- Saving a Git profile does not create a provider account, upload a key or rewrite Git remotes. Changing a remote is a separate reviewed action in key details; complex Git overrides are refused.
 - Removing a local key does not revoke copies already installed on servers. Removing a trusted-host entry does not delete a connection alias.
 - Recovery keeps **one previous version** of supported configuration files. It is not a private-key backup system.
 - Diagnostics does not accept unknown server keys. Network operations may use your existing proxy configuration.

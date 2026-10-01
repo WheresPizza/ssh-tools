@@ -68,7 +68,7 @@ fn validate(profile: &GitProfile) -> Result<()> {
 fn ssh_quote(value: &str) -> String {
     format!("\"{}\"", value.replace('\\', "\\\\").replace('"', "\\\""))
 }
-fn render(profiles: &[GitProfile]) -> Result<String> {
+pub(crate) fn render(profiles: &[GitProfile]) -> Result<String> {
     if profiles.is_empty() {
         return Ok(String::new());
     }
@@ -82,7 +82,7 @@ fn render(profiles: &[GitProfile]) -> Result<String> {
     section.push_str(END);
     Ok(section)
 }
-fn split(content: &str) -> Result<(Vec<GitProfile>, &str)> {
+pub(crate) fn split(content: &str) -> Result<(Vec<GitProfile>, &str)> {
     if !content.starts_with(BEGIN) {
         if content.contains(BEGIN.trim()) || content.contains(END.trim()) {
             return Err(invalid("Git profile section was moved or damaged; restore the config backup before editing profiles"));

@@ -1,5 +1,4 @@
 import { DiagnosticsPage } from "./features/diagnostics/DiagnosticsPage";
-import { RepositoriesPage } from "./features/repositories/RepositoriesPage";
 import { GitProfilesPage } from "./features/git-profiles/GitProfilesPage";
 import { useEffect, useState } from "react";
 import { getWorkspace } from "./lib/tauri";
@@ -16,8 +15,6 @@ function PageContent() {
   switch (activeTab) {
     case "diagnostics":
       return <DiagnosticsPage />;
-    case "repositories":
-      return <RepositoriesPage />;
     case "git-profiles":
       return <GitProfilesPage />;
     case "ssh-config":
@@ -43,6 +40,7 @@ function App() {
     getWorkspace().then(async value => {
       useStore.persist.setOptions({ name: value.isolated ? `ssh-gui-storage:${value.ssh_dir}` : "ssh-gui-storage" });
       await useStore.persist.rehydrate();
+      if (useStore.getState().activeTab === "repositories") useStore.getState().setActiveTab("ssh-keys");
       if (useStore.getState().activeTab === "launcher") useStore.getState().setActiveTab("ssh-config");
       if (active) setWorkspace(value);
     }).catch(e => { if (active) setError(String(e)); });

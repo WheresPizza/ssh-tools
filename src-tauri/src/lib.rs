@@ -13,8 +13,10 @@ use commands::agent_policy::*;
 use commands::diagnostics::*;
 use commands::key_import::*;
 use commands::key_insights::*;
+use commands::key_rotation::*;
 use commands::profiles::*;
 use commands::repositories::*;
+use commands::repository_access::*;
 use commands::{app::*, known_hosts::*, launcher::*, ssh_config::*, ssh_keys::*};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -127,6 +129,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             set_repository_roots,
             scan_repositories,
+            inspect_repository,
+            preview_repository_access,
+            apply_repository_access,
+            preview_key_rotation,
+            apply_key_rotation,
             get_key_usage,
             list_key_metadata,
             save_key_metadata,

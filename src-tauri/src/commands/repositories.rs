@@ -80,7 +80,7 @@ pub async fn set_repository_roots(roots: Vec<String>) -> Result<()> {
     .await
     .map_err(|e| invalid(e.to_string()))?
 }
-fn bounded_text(path: &Path) -> Result<String> {
+pub(crate) fn bounded_text(path: &Path) -> Result<String> {
     crate::utils::permissions::reject_symlink(path)?;
     let meta = std::fs::metadata(path)?;
     if !meta.is_file() || meta.len() > 2 * 1024 * 1024 {
@@ -90,7 +90,7 @@ fn bounded_text(path: &Path) -> Result<String> {
     }
     Ok(std::fs::read_to_string(path)?)
 }
-fn git_config(path: &Path) -> Result<Vec<(String, String)>> {
+pub(crate) fn git_config(path: &Path) -> Result<Vec<(String, String)>> {
     bounded_text(path)?;
     // --file and --no-includes prevent repository configuration from causing further reads.
     let output = Command::new("git")
@@ -240,7 +240,7 @@ fn matches_host(patterns: &str, hostname: &str) -> bool {
     }
     matched
 }
-fn identity_path(value: &str, ssh_dir: &Path) -> Option<String> {
+pub(crate) fn identity_path(value: &str, ssh_dir: &Path) -> Option<String> {
     let parts = shlex::split(value)?;
     if parts.len() != 1 || parts[0] == "none" || parts[0].contains('%') || parts[0].contains('$') {
         return None;
@@ -311,10 +311,31 @@ fn scan(
     profiles: &[super::profiles::GitProfile],
     ssh_dir: &Path,
 ) -> Result<RepositoryScan> {
+    scan_selected(roots, hosts, profiles, ssh_dir, false)
+}
+pub(crate) fn scan_exact(
+    repository: String,
+    hosts: &[SshHost],
+    profiles: &[super::profiles::GitProfile],
+    ssh_dir: &Path,
+) -> Result<RepositoryScan> {
+    scan_selected(vec![repository], hosts, profiles, ssh_dir, true)
+}
+fn scan_selected(
+    roots: Vec<String>,
+    hosts: &[SshHost],
+    profiles: &[super::profiles::GitProfile],
+    ssh_dir: &Path,
+    exact: bool,
+) -> Result<RepositoryScan> {
     let mut warnings = Vec::new();
     let mut repositories = Vec::new();
     let mut visited = HashSet::new();
     for root in &roots {
+        if exact {
+            repositories.push(PathBuf::from(root));
+            continue;
+        }
         discover(
             Path::new(root),
             0,

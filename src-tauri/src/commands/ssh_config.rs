@@ -134,7 +134,7 @@ fn normalize_alias(value: &str) -> String {
         .unwrap_or_else(|| value.to_string())
 }
 
-fn split_comment(line: &str) -> (&str, &str) {
+pub(crate) fn split_comment(line: &str) -> (&str, &str) {
     let mut quote = None;
     let mut escaped = false;
     let mut previous_space = true;
@@ -163,7 +163,7 @@ fn split_comment(line: &str) -> (&str, &str) {
     (line, "")
 }
 
-fn directive(line: &str) -> (&str, &str) {
+pub(crate) fn directive(line: &str) -> (&str, &str) {
     let line = split_comment(line).0.trim();
     if line.starts_with('#') {
         return ("", "");

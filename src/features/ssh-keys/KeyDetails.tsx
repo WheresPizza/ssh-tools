@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getKeyUsage, saveKeyMetadata, type KeyMetadata, type KeyUsage, type MetadataSnapshot, type SshKeyInfo } from "../../lib/tauri";
+import { KeyRotation } from "./KeyRotation";
+import { KeyRepositories } from "./KeyRepositories";
 import { ConfirmDialog } from "../../components/common/ConfirmDialog";
 
 export const emptyMetadata: KeyMetadata = { tags: [], purpose: "", note: "", replace_on: null };
@@ -16,7 +18,7 @@ export function UsageSummary({ usage }: { usage: KeyUsage }) {
       <h4 className="font-semibold">{label}</h4>
       {values.length ? <ul className="mt-1 space-y-1 text-muted-foreground break-words">{[...new Set(values)].map(v => <li key={v}>{v}</li>)}</ul> : <p className="text-muted-foreground">No local links found.</p>}
     </div>)}
-    <p className="text-xs text-muted-foreground break-words">{usage.roots.length ? `Checked project folders: ${usage.roots.join(", ")}` : "No project folders selected; repository usage has not been checked. Choose folders in Repositories."}</p>
+    <p className="text-xs text-muted-foreground break-words">{usage.roots.length ? `Checked project folders: ${usage.roots.join(", ")}` : "No project folders selected; repository usage has not been checked. Choose folders in key details → Project folders."}</p>
     {usage.warnings.map((w, i) => <p key={i} role="status" className="text-warning text-xs break-words">{w}</p>)}
     <p className="text-xs text-muted-foreground">Local references are configuration evidence. Unscanned repositories, dynamic SSH rules and remote installations are outside this check.</p>
   </div>;
@@ -32,6 +34,7 @@ export function KeyDetails({ keyInfo, copies, snapshot, metadataError, agentStat
   const [tags, setTags] = useState(draft.tags.join(", "));
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [discard, setDiscard] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [usage, setUsage] = useState<KeyUsage | null>(null);
@@ -65,7 +68,7 @@ export function KeyDetails({ keyInfo, copies, snapshot, metadataError, agentStat
   return <section className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div><h2 ref={heading} tabIndex={-1} className="text-lg font-semibold break-all">{keyInfo.name}</h2><p className="text-sm text-muted-foreground">Key details</p></div>
-      <button className="btn" disabled={saving} onClick={() => dirty ? setDiscard(true) : onClose()}>Back to keys</button>
+      <div className="flex flex-wrap gap-2"><KeyRotation keyInfo={keyInfo} onBusy={setRotating} onChanged={() => setRefresh(r => r + 1)} /><button className="btn" disabled={saving || rotating} onClick={() => dirty ? setDiscard(true) : onClose()}>Back to keys</button></div>
     </div>
     {keyInfo.error && <p role="alert" className="text-destructive break-words">{keyInfo.error}</p>}
     <div className="rounded-lg border border-border bg-card p-4 space-y-3">
@@ -104,6 +107,7 @@ export function KeyDetails({ keyInfo, copies, snapshot, metadataError, agentStat
       <div className="flex justify-between gap-3"><h3 className="text-sm font-semibold">References to this file</h3><button className="btn btn-compact" onClick={() => setRefresh(r => r + 1)}>Recheck references</button></div>
       {usage ? <UsageSummary usage={usage} /> : <p role="status" className="text-sm text-muted-foreground break-words">{usageError || "Checking local configuration and project folders…"}</p>}
     </div>
+    <KeyRepositories keyInfo={keyInfo} usage={usage} onChanged={() => setRefresh(r => r + 1)} />
     {discard && <ConfirmDialog title="Discard annotation edits?" description="Your unsaved edits will be lost. Existing annotations and key files will stay unchanged." confirmLabel="Discard edits" destructive onCancel={() => setDiscard(false)} onConfirm={onClose} />}
   </section>;
 }

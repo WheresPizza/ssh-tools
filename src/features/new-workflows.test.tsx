@@ -2,7 +2,7 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { GitProfilesPage } from "./git-profiles/GitProfilesPage";
-import { RepositoriesPage } from "./repositories/RepositoriesPage";
+import { KeyRepositories } from "./ssh-keys/KeyRepositories";
 import { DiagnosticsPage } from "./diagnostics/DiagnosticsPage";
 import { KeyImportDialog } from "./ssh-keys/KeyImportDialog";
 import { AgentOptionsDialog } from "./ssh-keys/AgentOptionsDialog";
@@ -12,7 +12,7 @@ import * as api from "../lib/tauri";
 import { listen } from "@tauri-apps/api/event";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-vi.mock("../lib/tauri", () => ({ listGitProfiles: vi.fn(), saveGitProfile: vi.fn(), deleteGitProfile: vi.fn(), listSshKeys: vi.fn(), scanRepositories: vi.fn(), setRepositoryRoots: vi.fn(), getSshConfig: vi.fn(), diagnoseSsh: vi.fn(), inspectKeyImport: vi.fn(), importSshKey: vi.fn(), getKeyUsage: vi.fn() }));
+vi.mock("../lib/tauri", () => ({ listGitProfiles: vi.fn(), saveGitProfile: vi.fn(), deleteGitProfile: vi.fn(), listSshKeys: vi.fn(), inspectRepository: vi.fn(), previewRepositoryAccess: vi.fn(), applyRepositoryAccess: vi.fn(), scanRepositories: vi.fn(), setRepositoryRoots: vi.fn(), getSshConfig: vi.fn(), diagnoseSsh: vi.fn(), inspectKeyImport: vi.fn(), importSshKey: vi.fn(), getKeyUsage: vi.fn() }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn() }));
 vi.mock("@tauri-apps/plugin-clipboard-manager", () => ({ writeText: vi.fn() }));
@@ -53,7 +53,7 @@ describe("Git profiles and repository safety", () => {
   });
   it("adds only the explicitly selected project folder", async () => {
     vi.mocked(open).mockResolvedValue(["/fixture/projects"]);
-    render(<RepositoriesPage />); await screen.findByText(/0 repositories/);
+    render(<KeyRepositories keyInfo={key} usage={{ roots: [], hosts: [], repositories: [], profiles: [], warnings: [] }} onChanged={vi.fn()} />); await screen.findByText("No folders added to scan coverage.");
     fireEvent.click(screen.getByRole("button", { name: "Add project folder" }));
     await waitFor(() => expect(api.setRepositoryRoots).toHaveBeenCalledWith(["/fixture/projects"]));
   });
@@ -117,4 +117,54 @@ describe("diagnostics, import and agent constraints", () => {
     await waitFor(() => expect(api.diagnoseSsh).toHaveBeenCalledWith("alice@git-work", false, 2222));
   });
 
+});
+
+
+describe("access setup from key details", () => {
+  const usage = { roots: [], hosts: [], profiles: [], repositories: [], warnings: [] };
+  const plan = { repository: "/fixture/project", remote: "origin", before: "https://github.com/team/repo.git", after: "git@git-work:team/repo.git", key_path: key.private_path, fingerprint: key.fingerprint, alias: "git-work", revision: "git-v1", ssh_revision: "ssh-v1", warnings: ["Configuration evidence only"] };
+  async function choose() {
+    vi.mocked(open).mockResolvedValue("/fixture/project");
+    vi.mocked(api.inspectRepository).mockResolvedValue({ roots: ["/fixture/project"], repositories: 1, warnings: [], remotes: [{ repository: "/fixture/project", name: "origin", direction: "fetch/push", url: plan.before, ssh_host: null, ssh_user: null, ssh_port: null, profiles: [], key_paths: [], warnings: [] }] });
+    vi.mocked(api.previewRepositoryAccess).mockResolvedValue(plan);
+    fireEvent.click(screen.getByRole("button", { name: "Set up repository access" }));
+    await screen.findByLabelText("Remote");
+  }
+  it("only applies the reviewed plan after the explicit Apply action", async () => {
+    const changed = vi.fn();
+    render(<KeyRepositories keyInfo={key} usage={usage} onChanged={changed} />);
+    await choose();
+    expect(api.applyRepositoryAccess).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Preview URL change" }));
+    await screen.findByText(plan.after);
+    expect(api.previewRepositoryAccess).toHaveBeenCalledWith("/fixture/project", "origin", key, "git-work");
+    expect(api.applyRepositoryAccess).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Apply URL change" }));
+    await screen.findByText("Repository URL updated. Authentication has not been tested.");
+    expect(api.applyRepositoryAccess).toHaveBeenCalledWith(plan);
+    expect(changed).toHaveBeenCalledOnce();
+    expect(api.setRepositoryRoots).not.toHaveBeenCalled();
+  });
+  it("keeps a rejected stale change visible and cancellation writes nothing", async () => {
+    vi.mocked(api.applyRepositoryAccess).mockRejectedValue(new Error("Configuration changed"));
+    render(<KeyRepositories keyInfo={key} usage={usage} onChanged={vi.fn()} />);
+    await choose();
+    fireEvent.click(screen.getByRole("button", { name: "Preview URL change" }));
+    await screen.findByText(plan.after);
+    fireEvent.click(screen.getByRole("button", { name: "Apply URL change" }));
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.getByText(plan.after)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Close setup" }));
+    expect(api.applyRepositoryAccess).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(plan.after)).toBeNull();
+  });
+  it("offers only profiles referencing the selected key", async () => {
+    vi.mocked(api.listGitProfiles).mockResolvedValue({ profiles: [{ ...profile, key_path: "/other/key" }], revision: "v" });
+    render(<KeyRepositories keyInfo={key} usage={usage} onChanged={vi.fn()} />);
+    vi.mocked(open).mockResolvedValue("/fixture/project");
+    vi.mocked(api.inspectRepository).mockResolvedValue({ roots: ["/fixture/project"], repositories: 1, remotes: [], warnings: [] });
+    fireEvent.click(screen.getByRole("button", { name: "Set up repository access" }));
+    await screen.findByText(/Create an alias for this key/);
+    expect(screen.queryByRole("button", { name: "Preview URL change" })).toBeNull();
+  });
 });
