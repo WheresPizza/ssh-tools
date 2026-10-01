@@ -8,6 +8,7 @@ import { useStore } from "../stores";
 import * as api from "../lib/tauri";
 vi.mock("../lib/tauri", () => ({
   getDetectedTerminal: vi.fn(), setPreferredTerminal: vi.fn(), listBackups: vi.fn(),
+  listSshKeys: vi.fn().mockResolvedValue([]), listAgentKeys: vi.fn().mockResolvedValue([]), listAgentEnrollments: vi.fn().mockResolvedValue([]), listKeyMetadata: vi.fn().mockResolvedValue({ entries: {}, revision: "v" }), auditPermissions: vi.fn().mockResolvedValue([]),
   getWorkspace: vi.fn(), getSshConfig: vi.fn(), launchSshConnection: vi.fn(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
@@ -28,6 +29,7 @@ it("groups entity navigation and replaces Launcher with Settings", () => {
   render(<Sidebar />);
   const nav = screen.getByRole("navigation", { name: "Workspace" });
   expect(within(nav).queryByRole("button", { name: "Launcher" })).toBeNull();
+  expect(within(nav).queryByRole("button", { name: "Repositories" })).toBeNull();
   expect(within(nav).getByRole("button", { name: "SSH Hosts" }).getAttribute("aria-current")).toBe("page");
   fireEvent.click(within(nav).getByRole("button", { name: "Settings" }));
   expect(useStore.getState().activeTab).toBe("settings");
@@ -54,4 +56,14 @@ it("migrates a saved Launcher tab to Hosts and routes recovery to Settings", asy
   expect(screen.queryByText("Backups and recovery")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "File recovery in Settings" }));
   expect(await screen.findByRole("heading", { name: "Settings" })).toBeTruthy();
+});
+
+it("migrates the removed repository tab to the key library", async () => {
+  useStore.persist.setOptions({ storage: {
+    getItem: () => ({ state: { activeTab: "repositories", connectionHistory: {} }, version: 0 }),
+    setItem: () => {}, removeItem: () => {},
+  } });
+  render(<App />);
+  await waitFor(() => expect(useStore.getState().activeTab).toBe("ssh-keys"));
+  expect(await screen.findByRole("heading", { name: "SSH Keys" })).toBeTruthy();
 });

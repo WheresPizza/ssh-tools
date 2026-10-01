@@ -3878,7 +3878,7 @@ dependencies = [
 
 [[package]]
 name = "ssh-gui"
-version = "0.3.0"
+version = "0.3.2"
 dependencies = [
  "dirs 5.0.1",
  "glob",

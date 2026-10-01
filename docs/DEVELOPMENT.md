@@ -66,3 +66,7 @@ npm run tauri build -- --bundles app
 ```
 
 See [Release guide](RELEASING.md) before tagging. Follow the [interface guidelines](INTERFACE_GUIDELINES.md) and [screen ownership](SCREEN_OWNERSHIP.md) when adding UI.
+
+The 0.3.1 acceptance scenario covers repository access preview/apply through real Tauri IPC: unchanged preview, stale config/fingerprint rejection, Git locks, forged plans, SSH override/include/push-URL conflicts, exact-folder inspection and previous-config backup. UI tests cover removed navigation migration, folder coverage and explicit URL review/application.
+
+The 0.3.2 key replacement scenario verifies selection of main/included host directives and a Git profile through IPC; unchanged old/new key bytes and metadata; preserved unselected, Match, wildcard and external references; stale config/fingerprint and forged-plan rejection; CRLF/comment preservation; and recovery backup discovery. Unit tests inject a write failure after the first file to verify rollback and preflight refusal before any config change. UI tests cover the four steps, empty initial selection, blocked references, registration acknowledgement, same-identity exclusion, cancel and stale-plan refresh.

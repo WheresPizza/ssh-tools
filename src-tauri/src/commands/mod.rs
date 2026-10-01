@@ -9,3 +9,7 @@ pub mod profiles;
 pub mod repositories;
 pub mod ssh_config;
 pub mod ssh_keys;
+
+pub mod repository_access;
+
+pub mod key_rotation;

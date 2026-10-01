@@ -1,7 +1,8 @@
 //! Full local lifecycle through Tauri's real IPC decoder. The parent starts a
 //! dedicated process and ssh-agent with an isolated workspace, never changing HOME.
 use crate::commands::{
-    agent_policy::*, diagnostics::*, key_import::*, key_insights::*, profiles::*, repositories::*,
+    agent_policy::*, diagnostics::*, key_import::*, key_insights::*, key_rotation::*, profiles::*,
+    repositories::*, repository_access::*,
 };
 use crate::commands::{app::*, known_hosts::*, launcher::*, ssh_config::*, ssh_keys::*};
 use serde_json::{json, Value};
@@ -85,6 +86,11 @@ fn local_workflow() {
         .invoke_handler(tauri::generate_handler![
             set_repository_roots,
             scan_repositories,
+            inspect_repository,
+            preview_repository_access,
+            apply_repository_access,
+            preview_key_rotation,
+            apply_key_rotation,
             get_key_usage,
             list_key_metadata,
             save_key_metadata,
@@ -419,6 +425,57 @@ fn local_workflow() {
         "[remote \"origin\"]\nurl = git@git-work:team/repo.git\n",
     )
     .unwrap();
+
+    // Explicit access setup: real Git config edits through IPC, no network or hooks.
+    let config = repository.join(".git/config");
+    let original = "[remote \"origin\"]\nurl = https://github.com/team/repo.git\n[core]\nrepositoryformatversion = 0\n";
+    std::fs::write(&config, original).unwrap();
+    let request = json!({"repository":repository,"remote":"origin","key_path":keypath,"fingerprint":key["fingerprint"],"alias":"git-work"});
+    let exact = invoke("inspect_repository", json!({"repository":repository}));
+    assert_eq!(exact["repositories"], 1);
+    let preview = invoke("preview_repository_access", request.clone());
+    assert_eq!(preview["after"], "git@git-work:team/repo.git");
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), original);
+    // External edits, locks, forged plans and changed keys never get overwritten.
+    std::fs::write(&config, format!("{original}# external edit\n")).unwrap();
+    assert!(call("apply_repository_access", json!({"plan":preview}))
+        .unwrap_err()
+        .contains("changed"));
+    std::fs::write(&config, original).unwrap();
+    let mut forged = preview.clone();
+    forged["after"] = json!("git@evil:repo");
+    assert!(call("apply_repository_access", json!({"plan":forged})).is_err());
+    let lock = repository.join(".git/config.lock");
+    std::fs::write(&lock, "busy").unwrap();
+    assert!(call("apply_repository_access", json!({"plan":preview}))
+        .unwrap_err()
+        .contains("locked"));
+    assert_eq!(std::fs::read_to_string(&lock).unwrap(), "busy");
+    std::fs::remove_file(&lock).unwrap();
+    let mut stale_key = request.clone();
+    stale_key["fingerprint"] = json!("SHA256:stale");
+    assert!(call("preview_repository_access", stale_key).is_err());
+    for suffix in [
+        "[core]\nsshCommand = touch SHOULD_NOT_EXIST\n",
+        "[include]\npath = elsewhere\n",
+        "[remote \"origin\"]\npushurl = git@other:repo\n",
+        "[remote \"origin\"]\nurl = git@github.com:other\n",
+    ] {
+        std::fs::write(&config, format!("{original}{suffix}")).unwrap();
+        assert!(call("preview_repository_access", request.clone()).is_err());
+    }
+    assert!(!repository.join("SHOULD_NOT_EXIST").exists());
+    std::fs::write(&config, original).unwrap();
+    invoke("apply_repository_access", json!({"plan":preview}));
+    let updated = std::fs::read_to_string(&config).unwrap();
+    assert!(updated.contains("git@git-work:team/repo.git"));
+    assert!(updated.contains("repositoryformatversion = 0"));
+    assert_eq!(
+        std::fs::read_to_string(repository.join(".git/.config.ssh-gui.bak")).unwrap(),
+        original
+    );
+    assert!(!lock.exists());
+
     invoke("set_repository_roots", json!({"roots":[projects]}));
     let scan = invoke("scan_repositories", json!({}));
     assert_eq!(scan["repositories"], 1);
@@ -529,6 +586,108 @@ fn local_workflow() {
     assert_eq!(overridden["user"], "another");
 
     assert!(report["authenticated"].is_null());
+    // Key replacement preserves old files and switches only reviewed references.
+    let rotation_metadata = invoke("list_key_metadata", json!({}));
+    let replacement = invoke(
+        "generate_ssh_key",
+        json!({"params":{"algorithm":"Ed25519","filename":"rotation-new","comment":"replacement","passphrase":null}}),
+    );
+    let newpath = replacement["private_path"].as_str().unwrap();
+    let old_bytes = std::fs::read(keypath).unwrap();
+    let new_bytes = std::fs::read(newpath).unwrap();
+    let config_path = root.join("config");
+    let before_rotation = std::fs::read_to_string(&config_path).unwrap();
+    let extra = root.join("rotation.conf");
+    let external = root.parent().unwrap().join("external-rotation.conf");
+    let extra_before = format!("# keep\r\nHost included-rotation\r\n\tIdentityFile=\"{keypath}\" # comment\r\nHost untouched\r\n IdentityFile {keypath}\r\n");
+    std::fs::write(&extra, &extra_before).unwrap();
+    std::fs::write(
+        &external,
+        format!("Host external-rotation\n IdentityFile {keypath}\n"),
+    )
+    .unwrap();
+    let main_before = format!("{before_rotation}\nInclude rotation.conf {}\nHost direct-rotation\n IdentityFile \"{keypath}\" # preserve\nMatch host conditional\n IdentityFile {keypath}\nHost wildcard-*\n IdentityFile {keypath}\n", external.display());
+    std::fs::write(&config_path, &main_before).unwrap();
+    let rotation_request = json!({"old_path":keypath,"old_fingerprint":key["fingerprint"],"new_path":newpath,"new_fingerprint":replacement["fingerprint"]});
+    let rotation = invoke("preview_key_rotation", rotation_request.clone());
+    assert_eq!(std::fs::read_to_string(&config_path).unwrap(), main_before);
+    let targets = rotation["targets"].as_array().unwrap();
+    let blocked: Vec<_> = targets.iter().filter(|t| !t["blocked"].is_null()).collect();
+    assert_eq!(blocked.len(), 3); // Match, wildcard and external Include
+    let chosen: Vec<_> = targets
+        .iter()
+        .filter(|t| t["blocked"].is_null() && t["label"] != "untouched")
+        .map(|t| t["id"].clone())
+        .collect();
+    assert_eq!(chosen.len(), 3); // profile plus main/included host
+    assert!(call(
+        "apply_key_rotation",
+        json!({"plan":rotation,"selected":[blocked[0]["id"]]})
+    )
+    .is_err());
+    assert!(call("apply_key_rotation", json!({"plan":rotation,"selected":[]})).is_err());
+    let mut forged = rotation.clone();
+    forged["targets"][0]["after"] = json!("/other/key");
+    assert!(call(
+        "apply_key_rotation",
+        json!({"plan":forged,"selected":chosen})
+    )
+    .is_err());
+    std::fs::write(&extra, format!("{extra_before}# changed\n")).unwrap();
+    assert!(call(
+        "apply_key_rotation",
+        json!({"plan":rotation,"selected":chosen})
+    )
+    .unwrap_err()
+    .contains("changed"));
+    std::fs::write(&extra, &extra_before).unwrap();
+    // Either identity changing invalidates the plan, even if the paths are unchanged.
+    std::fs::write(newpath, &old_bytes).unwrap();
+    assert!(call(
+        "apply_key_rotation",
+        json!({"plan":rotation,"selected":chosen})
+    )
+    .is_err());
+    std::fs::write(newpath, &new_bytes).unwrap();
+    invoke(
+        "apply_key_rotation",
+        json!({"plan":rotation,"selected":chosen}),
+    );
+    assert_eq!(std::fs::read(keypath).unwrap(), old_bytes);
+    assert_eq!(std::fs::read(newpath).unwrap(), new_bytes);
+    assert_eq!(
+        invoke("list_git_profiles", json!({}))["profiles"][0]["key_path"],
+        newpath
+    );
+    let after = std::fs::read_to_string(&config_path).unwrap();
+    assert!(after.contains(&format!(
+        "Host direct-rotation\n IdentityFile \"{newpath}\" # preserve"
+    )));
+    assert!(after.contains(&format!("Match host conditional\n IdentityFile {keypath}")));
+    assert!(after.contains(&format!("Host wildcard-*\n IdentityFile {keypath}")));
+    let extra_after = std::fs::read_to_string(&extra).unwrap();
+    assert!(extra_after.contains(&format!("\tIdentityFile=\"{newpath}\" # comment\r\n")));
+    assert!(extra_after.contains(&format!("Host untouched\r\n IdentityFile {keypath}\r\n")));
+    assert_eq!(
+        std::fs::read_to_string(crate::utils::permissions::backup_path(&config_path)).unwrap(),
+        main_before
+    );
+    assert_eq!(
+        std::fs::read_to_string(crate::utils::permissions::backup_path(&extra)).unwrap(),
+        extra_before
+    );
+    let backups = invoke("list_backups", json!({}));
+    assert!(backups
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|b| b["path"] == extra.to_string_lossy().as_ref()));
+    assert_eq!(invoke("list_key_metadata", json!({})), rotation_metadata);
+    // Restore fixture for the independent workflows that follow.
+    std::fs::write(&config_path, before_rotation).unwrap();
+    std::fs::remove_file(extra).unwrap();
+    std::fs::remove_file(external).unwrap();
+
     invoke(
         "delete_git_profile",
         json!({"alias":"git-work","revision":saved["revision"]}),

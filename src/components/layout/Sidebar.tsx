@@ -1,10 +1,9 @@
-import { FolderGit2, GitBranch, FileCog, KeyRound, Activity, Terminal, ShieldCheck, Settings2 } from "lucide-react";
+import { GitBranch, FileCog, KeyRound, Activity, Terminal, ShieldCheck, Settings2 } from "lucide-react";
 import { useStore } from "../../stores";
 import { SidebarNavItem } from "./SidebarNavItem";
 
 const NAV_GROUPS = [
   { label: "WORKSPACE", items: [
-    { id: "repositories", label: "Repositories", icon: FolderGit2 },
     { id: "git-profiles", label: "Git Profiles", icon: GitBranch },
     { id: "ssh-config", label: "SSH Hosts", icon: FileCog },
   ] },
@@ -37,7 +36,7 @@ export function Sidebar() {
           </div>
         </div>)}
       </nav>
-      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / v0.3.0</div>
+      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / v0.3.2</div>
     </aside>
   );
 }

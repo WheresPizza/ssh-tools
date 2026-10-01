@@ -144,3 +144,16 @@ export interface KeyFinding { code: string; severity: "error" | "warning" | "inf
 export interface KeyAuditEntry { key_path: string; fingerprint: string; findings: KeyFinding[]; usage: KeyUsage | null; copies: string[] }
 export interface KeyAudit { entries: KeyAuditEntry[]; warnings: string[]; checked_at: number }
 export const auditSshKeys = () => invoke<KeyAudit>("audit_ssh_keys");
+
+export interface RepositoryAccessPlan {
+  repository: string; remote: string; before: string; after: string; key_path: string;
+  fingerprint: string; alias: string; revision: string; ssh_revision: string; warnings: string[];
+}
+export const inspectRepository = (repository: string) => invoke<RepositoryScan>("inspect_repository", { repository });
+export const previewRepositoryAccess = (repository: string, remote: string, key: SshKeyInfo, alias: string) => invoke<RepositoryAccessPlan>("preview_repository_access", { repository, remote, key_path: key.private_path, fingerprint: key.fingerprint, alias });
+export const applyRepositoryAccess = (plan: RepositoryAccessPlan) => invoke<void>("apply_repository_access", { plan });
+
+export interface KeyRotationTarget { id: string; kind: "host" | "profile"; label: string; source: string; line: number; before: string; after: string; blocked: string | null }
+export interface KeyRotationPlan { old_path: string; old_fingerprint: string; new_path: string; new_fingerprint: string; revisions: Record<string, string>; targets: KeyRotationTarget[]; warnings: string[] }
+export const previewKeyRotation = (oldKey: SshKeyInfo, newKey: SshKeyInfo) => invoke<KeyRotationPlan>("preview_key_rotation", { old_path: oldKey.private_path, old_fingerprint: oldKey.fingerprint, new_path: newKey.private_path, new_fingerprint: newKey.fingerprint });
+export const applyKeyRotation = (plan: KeyRotationPlan, selected: string[]) => invoke<void>("apply_key_rotation", { plan, selected });

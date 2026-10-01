@@ -2,7 +2,7 @@
 
 ## Find the right screen
 
-Workspace contains Repositories, Git Profiles and SSH Hosts. Security contains SSH Keys and Trusted Hosts. Tools contains Diagnostics and Settings. Each entity has one editing owner; shortcuts such as Diagnose open the shared tool with context.
+Workspace contains Git Profiles and SSH Hosts. Security contains SSH Keys and Trusted Hosts. Tools contains Diagnostics and Settings. Each entity has one editing owner; shortcuts such as Diagnose open the shared tool with context.
 
 ## Keys and the agent
 
@@ -26,6 +26,19 @@ The replacement date is a reminder, not an SSH expiration or revocation mechanis
 
 **Audit keys** checks the local library on demand. Filter errors, warnings or informational notes, open **Local references and scan coverage** for evidence, or open a key's details. It reports malformed or mismatched pairs, missing companions, duplicate identities, unencrypted private files, excess permissions and missing local links. An encrypted legacy pair may remain unverified without unlocking. Absence of local references never proves a key is unused remotely. The audit makes no network connections and does not modify keys; permission repair remains in the existing permissions panel. Run it again after changing files or configuration.
 
+## Replace a key
+
+Open **SSH Keys → Details → Replace key references**:
+
+1. Choose a different key identity from the library. Generate/import it first if needed. Copies of the current identity are excluded.
+2. Use **Find references** and select the SSH host directives and Git profiles to switch. Selection is explicit; global defaults, `Match`, wildcard/multiple-alias Host rules and outside-directory includes require manual review and cannot be selected.
+3. Review each before/after value and its source file. Register the new public key with the affected services and acknowledge this before applying.
+4. Choose **Apply replacement**. The app checks both key fingerprints and the configuration snapshot again, then stages changes and recovery backups. A detected write failure triggers rollback of already-applied files; any failed rollback is reported with paths.
+
+The old key, its agent enrollment, tags, notes and replacement reminder remain unchanged. Profile aliases stay the same, so repository URLs that already use those aliases continue to reference the profile. Explicit repository SSH commands, default identity discovery, certificates and remote key installations are outside this wizard. Test authentication before retiring the old key; local deletion does not revoke a server’s authorization.
+
+Each changed file has a previous-version backup in **Settings → File recovery**. Restore all affected files if reverting a multi-file replacement. A stale-plan error requires **Refresh replacement plan** and a new selection/review. Multi-file updates are not an OS-level transaction: interruption or external edits during application may require manual recovery.
+
 ## Multiple Git accounts
 
 1. Create/import a separate key for the account and register its public key with your provider.
@@ -37,9 +50,13 @@ The account label is descriptive; many Git providers use the SSH user `git` for 
 
 ## Local repositories
 
-In Repositories choose **Add project folder**. The scanner discovers Git remotes, including supported worktree layouts, and maps configured aliases/profiles/key paths. Search narrows the displayed results; **Rescan** refreshes them. **Stop scanning** removes a root from the inventory without deleting files.
+In **SSH Keys → Details → Project folders**, choose **Add project folder**. These folders are shared scan coverage for all keys, audit and deletion checks. Existing saved folders are retained. References appear with their key; there is no separate repository catalogue. **Recheck references** refreshes the evidence. **Stop scanning** removes a root without deleting files.
 
-Scan warnings matter: traversal is bounded and dependency/build directories are skipped. This is a read-only inventory, not a remote editor or an authentication result.
+Scan warnings matter: traversal is bounded and dependency/build directories are skipped. Discovery remains read-only and supports linked worktree layouts. Results are configuration evidence, not an authentication result.
+
+To configure an existing checkout, first create a Git Profile that selects the key. In that key’s details, choose **Set up repository access**, pick a repository folder, then its remote and one of the key’s profiles. **Preview URL change** shows the current and proposed URL; **Apply URL change** is the only action that writes it. The service hostname and repository path are preserved; the profile supplies the SSH alias and user. Register the public key with your Git provider separately.
+
+Setup supports regular repositories with one remote URL and no separate push URL. SSH command overrides, Git includes, local URL rewrites, conflicting hosts/users/explicit ports, credentials in URLs and linked worktrees require manual review. Changing Git/SSH configuration or the key after preview invalidates the plan. The old Git config is saved at `.git/.config.ssh-gui.bak`; this backup is not in Settings recovery. Restore it manually only after checking for newer Git changes. Setup neither contacts a server nor adds a scan folder automatically.
 
 ## Server connections
 
