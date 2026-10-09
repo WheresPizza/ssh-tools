@@ -1,8 +1,8 @@
 //! Full local lifecycle through Tauri's real IPC decoder. The parent starts a
 //! dedicated process and ssh-agent with an isolated workspace, never changing HOME.
 use crate::commands::{
-    agent_policy::*, diagnostics::*, key_import::*, key_insights::*, key_rotation::*, profiles::*,
-    repositories::*, repository_access::*,
+    agent_policy::*, diagnostics::*, key_import::*, key_insights::*, key_rotation::*,
+    operations::*, profiles::*, repositories::*, repository_access::*,
 };
 use crate::commands::{app::*, known_hosts::*, launcher::*, ssh_config::*, ssh_keys::*};
 use serde_json::{json, Value};
@@ -100,6 +100,8 @@ fn local_workflow() {
             import_ssh_key,
             restore_public_key,
             list_agent_enrollments,
+            list_terminal_operations,
+            dismiss_terminal_operation,
             list_git_profiles,
             save_git_profile,
             delete_git_profile,
@@ -156,6 +158,13 @@ fn local_workflow() {
     let context = invoke("get_workspace", json!({}));
     assert_eq!(context["isolated"], true);
     let root = Path::new(context["ssh_dir"].as_str().unwrap());
+    if std::env::var_os("SSH_GUI_ACCEPTANCE_RECOVERY").is_some() {
+        assert_eq!(
+            invoke("list_terminal_operations", json!({}))[0]["state"],
+            "completed"
+        );
+        return;
+    }
     if std::env::var_os("SSH_GUI_ACCEPTANCE_NO_AGENT").is_some() {
         assert!(call("list_agent_keys", json!({}))
             .unwrap_err()
@@ -179,8 +188,8 @@ fn local_workflow() {
     );
     assert_eq!(invoke("list_agent_keys", json!({})), json!([]));
     assert_eq!(
-        invoke("add_key_to_agent", json!({"key_path":keypath})),
-        true
+        invoke("add_key_to_agent", json!({"key_path":keypath}))["state"],
+        "completed"
     );
     assert_eq!(
         invoke("list_agent_keys", json!({})),
@@ -207,44 +216,79 @@ fn local_workflow() {
         .as_str()
         .unwrap()
         .starts_with("ssh-ed25519 "));
+    let pending = invoke(
+        "add_key_to_agent",
+        json!({"key_path":encrypted_path,"options":{"lifetime_seconds":120,"confirm":true}}),
+    );
+    assert_eq!(pending["state"], "awaiting_input");
+    assert_eq!(invoke("list_agent_keys", json!({})), json!([]));
+    assert!(!invoke("list_agent_enrollments", json!({}))
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|entry| entry["fingerprint"] == encrypted["fingerprint"]));
+    let duplicate = invoke("add_key_to_agent", json!({"key_path":encrypted_path}));
     assert_eq!(
-        invoke(
-            "add_key_to_agent",
-            json!({"key_path":encrypted_path,"options":{"lifetime_seconds":120,"confirm":true}})
-        ),
-        false
+        pending["id"], duplicate["id"],
+        "a double submit must not open another terminal"
     );
-    let terminal_log =
+    assert!(call("dismiss_terminal_operation", json!({"id": pending["id"]})).is_err());
+    let captured =
         std::fs::read_to_string(std::env::var_os("SSH_GUI_CAPTURE_TERMINAL").unwrap()).unwrap();
-    assert!(terminal_log.contains("SSH_AUTH_SOCK=") && terminal_log.contains("protected"));
-    assert!(terminal_log.contains("'-t' '120' '-c'"));
-    // Execute the exact command prepared for a terminal with a fixture-only askpass helper.
-    let helper = root.join("fixture-askpass.sh");
-    std::fs::write(&helper, "#!/bin/sh\nprintf '%s\\n' fixture-only-password\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
-    }
-    let enrollment = Command::new("sh")
-        .args(["-c", &terminal_log])
-        .env("SSH_ASKPASS", &helper)
-        .env("SSH_ASKPASS_REQUIRE", "force")
-        .env("DISPLAY", ":fixture")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let script_path = shlex::split(&captured).unwrap()[1].clone();
+    let script = std::fs::read_to_string(&script_path).unwrap();
+    assert!(script.contains("SSH_AUTH_SOCK=") && script.contains("/usr/bin/ssh-add"));
+    assert!(script.contains("'-t' '120' '-c'"));
     assert!(
-        enrollment.status.success(),
-        "{}",
-        String::from_utf8_lossy(&enrollment.stderr)
+        !script.contains("fixture-only-password"),
+        "receipts and scripts must not contain a passphrase"
     );
+    // Execute the exact terminal wrapper on a PTY. This is NOT Terminal.app UI acceptance.
+    run_terminal_fixture(&captured, "correct");
+    let results = invoke("list_terminal_operations", json!({}));
+    assert_eq!(results[0]["state"], "completed");
+    assert_eq!(results[0]["exit_code"], 0);
     assert!(invoke("list_agent_keys", json!({}))
         .as_array()
         .unwrap()
         .contains(&encrypted["fingerprint"]));
+    // A new app process must still read completion receipts, without relying on React state.
+    let recovered = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "acceptance::local_workflow", "--nocapture"])
+        .env("SSH_GUI_ACCEPTANCE_RECOVERY", "1")
+        .output()
+        .unwrap();
+    assert!(
+        recovered.status.success(),
+        "{}",
+        String::from_utf8_lossy(&recovered.stderr)
+    );
     invoke("remove_key_from_agent", json!({"key_path":encrypted_path}));
-    std::fs::remove_file(helper).unwrap();
+    invoke("dismiss_terminal_operation", json!({"id": pending["id"]}));
+    for (mode, expected) in [("wrong", "failed"), ("cancel", "cancelled")] {
+        let pending = invoke("add_key_to_agent", json!({"key_path":encrypted_path}));
+        let captured =
+            std::fs::read_to_string(std::env::var_os("SSH_GUI_CAPTURE_TERMINAL").unwrap()).unwrap();
+        run_terminal_fixture(&captured, mode);
+        let results = invoke("list_terminal_operations", json!({}));
+        assert_eq!(results[0]["state"], expected, "{mode}");
+        assert_eq!(invoke("list_agent_keys", json!({})), json!([]));
+        invoke("dismiss_terminal_operation", json!({"id": pending["id"]}));
+    }
+    // Exit status alone is insufficient: no fingerprint means no successful enrollment.
+    let pending = invoke("add_key_to_agent", json!({"key_path":encrypted_path}));
+    let receipt = root
+        .parent()
+        .unwrap()
+        .join("settings/operations")
+        .join(pending["id"].as_str().unwrap())
+        .join("exit-code");
+    std::fs::write(receipt, "0\n").unwrap();
+    assert_eq!(
+        invoke("list_terminal_operations", json!({}))[0]["state"],
+        "failed"
+    );
+    invoke("dismiss_terminal_operation", json!({"id": pending["id"]}));
     // Nested files are listed by relative path; private and public keys must agree.
     std::fs::create_dir(root.join("team")).unwrap();
     std::fs::copy(keypath, root.join("team/work")).unwrap();
@@ -850,7 +894,8 @@ fn local_workflow() {
     );
     let captured =
         std::fs::read_to_string(std::env::var_os("SSH_GUI_CAPTURE_TERMINAL").unwrap()).unwrap();
-    assert!(captured.contains("ssh-copy-id -f -F"));
+    let script = std::fs::read_to_string(&shlex::split(&captured).unwrap()[1]).unwrap();
+    assert!(script.contains("ssh-copy-id") && script.contains(" -f "));
     if std::env::var_os("SSH_GUI_LOCAL_NETWORK").is_some() {
         local_network_acceptance(root, keypath, public.as_str().unwrap(), &invoke);
     }
@@ -894,7 +939,16 @@ fn local_network_acceptance(
         .unwrap()
         .trim()
         .to_string();
-    let config = format!("ListenAddress 127.0.0.1\nPort {port}\nHostKey {}/fixture-host\nPidFile {}/sshd.pid\nAuthorizedKeysFile {}/accepted\nStrictModes no\nUsePAM no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers {username}\nLogLevel ERROR\n", root.display(),root.display(),root.display());
+    let remote_home = root.join("remote-home");
+    std::fs::create_dir_all(remote_home.join(".ssh")).unwrap();
+    std::fs::write(
+        remote_home.join(".ssh/authorized_keys"),
+        format!("{public}\n"),
+    )
+    .unwrap();
+    let forced = root.join("fixture-session.sh");
+    std::fs::write(&forced, format!("#!/bin/sh\nexport HOME={}\ncd \"$HOME\" || exit 1\nexec /bin/sh -c \"$SSH_ORIGINAL_COMMAND\"\n", shell_quote(&remote_home.to_string_lossy()))).unwrap();
+    let config = format!("ListenAddress 127.0.0.1\nPort {port}\nHostKey {}/fixture-host\nPidFile {}/sshd.pid\nAuthorizedKeysFile {}/.ssh/authorized_keys\nForceCommand /bin/sh {}\nStrictModes no\nUsePAM no\nPasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nAllowUsers {username}\nLogLevel ERROR\n", root.display(),root.display(),remote_home.display(),forced.display());
     std::fs::write(root.join("sshd_config"), config).unwrap();
     let log = std::fs::File::create(root.join("sshd.log")).unwrap();
     let mut server = Process(
@@ -989,27 +1043,33 @@ fn local_network_acceptance(
         .unwrap()
         .iter()
         .any(|s| s["title"] == "Authentication rejected"));
-    std::fs::write(root.join("config"), &previous_config).unwrap();
-    std::fs::write(root.join("known_hosts"), &previous_known).unwrap();
-    // ssh-copy-id supports an explicit remote destination, so it writes only inside this fixture.
-    let transfer = Command::new("ssh-copy-id")
-        .arg("-f")
-        .arg("-F")
-        .arg(&client)
-        .arg("-i")
-        .arg(install["public_path"].as_str().unwrap())
-        .arg("-t")
-        .arg(root.join("accepted"))
-        .arg("local-acceptance")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    assert!(
-        transfer.status.success(),
-        "{}\n{}",
-        String::from_utf8_lossy(&transfer.stdout),
-        String::from_utf8_lossy(&transfer.stderr)
+    // Exercise the app's real installation IPC and exact terminal wrapper. sshd forces
+    // every fixture session into a disposable HOME; no user authorized_keys is touched.
+    std::fs::copy(&client, root.join("config")).unwrap();
+    let operation = invoke(
+        "copy_key_to_server",
+        json!({"key_path":install["private_path"], "host_alias":"local-acceptance"}),
     );
+    assert_eq!(operation["state"], "awaiting_input");
+    let captured =
+        std::fs::read_to_string(std::env::var_os("SSH_GUI_CAPTURE_TERMINAL").unwrap()).unwrap();
+    run_terminal_fixture(&captured, "correct");
+    let completed = invoke("list_terminal_operations", json!({}));
+    assert_eq!(
+        completed
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|op| op["id"] == operation["id"])
+            .unwrap()["state"],
+        "completed"
+    );
+    assert!(
+        std::fs::read_to_string(remote_home.join(".ssh/authorized_keys"))
+            .unwrap()
+            .contains(install["comment"].as_str().unwrap())
+    );
+    invoke("dismiss_terminal_operation", json!({"id": operation["id"]}));
     let installed_auth = Command::new("ssh")
         .args([
             "-F",
@@ -1040,5 +1100,52 @@ fn local_network_acceptance(
         String::from_utf8_lossy(&installed_auth.stdout),
         "installed-key-ok"
     );
+    std::fs::write(root.join("config"), &previous_config).unwrap();
+    std::fs::write(root.join("known_hosts"), &previous_known).unwrap();
     println!("LOOPBACK ACCEPTANCE PASSED: local SSH authentication, ssh-copy-id installation, new-key authentication and real host-key match/mismatch");
+}
+
+/// Feed disposable fixture input through a real controlling PTY, never via an app API.
+fn run_terminal_fixture(command: &str, mode: &str) {
+    let mut runner = Command::new("/usr/bin/python3");
+    runner.args(["-c", r#"
+import errno, os, pty, select, signal, sys, time
+pid, master = pty.fork()
+if pid == 0:
+    os.execv('/bin/sh', ['/bin/sh', '-c', sys.argv[1]])
+data = b''
+sent = 0
+start = time.monotonic()
+try:
+    while time.monotonic() - start < 12:
+        ready, _, _ = select.select([master], [], [], 0.1)
+        if not ready: continue
+        try: chunk = os.read(master, 4096)
+        except OSError as e:
+            if e.errno == errno.EIO: break
+            raise
+        if not chunk: break
+        data += chunk
+        count = data.count(b'passphrase')
+        if count > sent:
+            sent = count
+            mode = sys.argv[2]
+            answer = b'fixture-only-password\n' if mode == 'correct' else b'\x03' if mode == 'cancel' else b'wrong-fixture\n' if sent == 1 else b'\n'
+            os.write(master, answer)
+    else:
+        os.killpg(pid, signal.SIGKILL)
+        raise RuntimeError('terminal fixture timed out')
+    _, status = os.waitpid(pid, 0)
+    code = os.waitstatus_to_exitcode(status)
+    if (sys.argv[2] == 'correct' and code != 0) or (sys.argv[2] != 'correct' and code == 0):
+        raise RuntimeError('unexpected terminal fixture exit: ' + str(code))
+finally:
+    os.close(master)
+"#, command, mode]);
+    let output = crate::utils::process::run(runner, Duration::from_secs(15)).unwrap();
+    assert!(
+        output.status.success() && !output.timed_out,
+        "{}",
+        output.stderr
+    );
 }

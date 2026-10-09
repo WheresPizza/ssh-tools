@@ -5,7 +5,9 @@ use crate::utils::{
     ssh_dir::{get_ssh_dir, validate_key_filename, validate_key_in_dir, validate_key_path},
 };
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+#[cfg(test)]
+use std::process::Command;
+use std::process::Stdio;
 
 fn get_key_algorithm_str(alg: &KeyAlgorithm) -> (&'static str, &'static str, Option<&'static str>) {
     match alg {
@@ -27,37 +29,53 @@ pub(crate) fn read_key(path: &Path) -> Result<(ssh_key::PublicKey, bool)> {
     }
     let bytes = zeroize::Zeroizing::new(std::fs::read(path)?);
     if bytes.starts_with(b"-----BEGIN OPENSSH PRIVATE KEY-----") {
-        let key = ssh_key::PrivateKey::from_openssh(&*bytes).map_err(key_error)?;
-        let mut public = key.public_key().clone();
-        let pub_path = PathBuf::from(format!("{}.pub", path.display()));
-        if pub_path.exists() {
-            reject_symlink(&pub_path)?;
-            let companion = ssh_key::PublicKey::from_openssh(&std::fs::read_to_string(&pub_path)?)
-                .map_err(key_error)?;
-            if companion.key_data() != public.key_data() {
-                return Err(key_error("Public key does not match the private key"));
+        if let Ok(key) = ssh_key::PrivateKey::from_openssh(&*bytes) {
+            let mut public = key.public_key().clone();
+            let pub_path = PathBuf::from(format!("{}.pub", path.display()));
+            if pub_path.exists() {
+                reject_symlink(&pub_path)?;
+                let companion =
+                    ssh_key::PublicKey::from_openssh(&std::fs::read_to_string(&pub_path)?)
+                        .map_err(key_error)?;
+                if companion.key_data() != public.key_data() {
+                    return Err(key_error("Public key does not match the private key"));
+                }
+                public.set_comment(companion.comment());
             }
-            public.set_comment(companion.comment());
+            return Ok((public, key.is_encrypted()));
         }
-        return Ok((public, key.is_encrypted()));
     }
+    // ssh-key 0.6 cannot decode valid ECDSA mpints shorter than the curve width.
+    // OpenSSH validates such unencrypted keys; do not classify them as broken.
     // Legacy PEM is delegated to OpenSSH with an explicitly empty passphrase.
     // Distinguish encryption from file/format/permission errors.
-    let output = Command::new("ssh-keygen")
-        .env("LC_ALL", "C")
-        .args([
-            "-y",
-            "-P",
-            "",
-            "-f",
-            path.to_str().ok_or_else(|| key_error("Invalid key path"))?,
-        ])
-        .stdin(Stdio::null())
-        .output()?;
+    let output = crate::utils::process::output(
+        crate::utils::ssh_runtime::command("ssh-keygen")?
+            .env("LC_ALL", "C")
+            .args([
+                "-y",
+                "-P",
+                "",
+                "-f",
+                path.to_str().ok_or_else(|| key_error("Invalid key path"))?,
+            ])
+            .stdin(Stdio::null()),
+        std::time::Duration::from_secs(30),
+    )?;
     if output.status.success() {
-        let public =
+        let mut public =
             ssh_key::PublicKey::from_openssh(String::from_utf8_lossy(&output.stdout).trim())
                 .map_err(key_error)?;
+        let companion = PathBuf::from(format!("{}.pub", path.display()));
+        if companion.exists() {
+            reject_symlink(&companion)?;
+            let stored = ssh_key::PublicKey::from_openssh(&std::fs::read_to_string(companion)?)
+                .map_err(key_error)?;
+            if stored.key_data() != public.key_data() {
+                return Err(key_error("Public key does not match the private key"));
+            }
+            public.set_comment(stored.comment());
+        }
         return Ok((public, false));
     }
     let error = String::from_utf8_lossy(&output.stderr);
@@ -350,14 +368,48 @@ fn generate_key_in_dir(mut params: KeyGenParams, ssh_dir: &Path) -> Result<SshKe
     cmd_args.push("-N".to_string());
     cmd_args.push(String::new());
 
-    let output = Command::new("ssh-keygen")
-        .args(&cmd_args)
-        .output()
-        .map_err(|e| AppError::Process(format!("Failed to run ssh-keygen: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::SshKey(format!("ssh-keygen failed: {}", stderr)));
+    if matches!(
+        params.algorithm,
+        KeyAlgorithm::EcdsaP256 | KeyAlgorithm::EcdsaP384
+    ) {
+        // Generate ECDSA in the same codec that encrypts it, avoiding its short-mpint
+        // decoding defect. OpenSSH interoperability is checked for both curves.
+        let curve = if matches!(params.algorithm, KeyAlgorithm::EcdsaP256) {
+            ssh_key::EcdsaCurve::NistP256
+        } else {
+            ssh_key::EcdsaCurve::NistP384
+        };
+        let mut private = ssh_key::PrivateKey::random(
+            &mut ssh_key::rand_core::OsRng,
+            ssh_key::Algorithm::Ecdsa { curve },
+        )
+        .map_err(key_error)?;
+        private.set_comment(params.comment.clone());
+        std::fs::write(
+            &generated_path,
+            private
+                .to_openssh(ssh_key::LineEnding::LF)
+                .map_err(key_error)?
+                .as_bytes(),
+        )?;
+        std::fs::write(
+            staging.path().join("key.pub"),
+            format!(
+                "{}\n",
+                private.public_key().to_openssh().map_err(key_error)?
+            ),
+        )?;
+    } else {
+        let output = crate::utils::process::output(
+            crate::utils::ssh_runtime::command("ssh-keygen")?.args(&cmd_args),
+            std::time::Duration::from_secs(30),
+        )?;
+        if !output.status.success() {
+            return Err(key_error(format!(
+                "ssh-keygen failed: {}",
+                String::from_utf8_lossy(&output.stderr)
+            )));
+        }
     }
 
     if !passphrase.is_empty() {
@@ -371,6 +423,10 @@ fn generate_key_in_dir(mut params: KeyGenParams, ssh_dir: &Path) -> Result<SshKe
             .map_err(key_error)?;
         std::fs::write(&generated_path, pem.as_bytes())?;
     }
+    // Validate and set permissions before publishing either file.
+    parse_key_info(&generated_path)?;
+    set_private_key_permissions(&generated_path)?;
+    set_public_key_permissions(&staging.path().join("key.pub"))?;
     std::fs::hard_link(&generated_path, &key_path)?;
     if let Err(e) = std::fs::hard_link(staging.path().join("key.pub"), &pub_path) {
         let _ = std::fs::remove_file(&key_path);
@@ -409,6 +465,17 @@ pub async fn delete_ssh_key(key_path: String, expected_fingerprint: String) -> R
 }
 
 fn delete_ssh_key_blocking(key_path: String, expected_fingerprint: String) -> Result<()> {
+    let _operation = super::operations::OPERATION_LOCK
+        .lock()
+        .map_err(|_| key_error("Operation lock unavailable"))?;
+    if super::operations::list_blocking()?
+        .iter()
+        .any(|op| op.pending() && op.fingerprint.as_deref() == Some(&expected_fingerprint))
+    {
+        return Err(key_error(
+            "Finish or interrupt the pending terminal operation before deleting this key.",
+        ));
+    }
     validate_key_path(&key_path)?;
     let path = PathBuf::from(&key_path);
     let pub_path = PathBuf::from(format!("{}.pub", key_path));
@@ -425,15 +492,11 @@ fn delete_ssh_key_blocking(key_path: String, expected_fingerprint: String) -> Re
             "Key changed since loading; refresh before deleting",
         ));
     }
-    match list_agent_keys_blocking() {
-        Ok(keys) => {
-            if keys.contains(&get_key_fingerprint_blocking(key_path.clone())?) {
-                remove_key_from_agent_blocking(key_path.clone())?;
-            }
-        }
-        Err(AppError::AgentUnavailable) => {}
+    match remove_key_from_agent_inner(key_path.clone()) {
+        Ok(()) | Err(AppError::AgentUnavailable) => {}
         Err(e) => return Err(e),
     }
+
     if path.exists() {
         std::fs::remove_file(&path)?;
     }
@@ -467,42 +530,14 @@ pub async fn list_agent_keys() -> Result<Vec<String>> {
 }
 
 pub(crate) fn list_agent_keys_blocking() -> Result<Vec<String>> {
-    let output = Command::new("ssh-add")
-        .arg("-l")
-        .output()
-        .map_err(|e| AppError::Process(format!("ssh-add failed: {}", e)))?;
-
-    // OpenSSH distinguishes an empty agent from an unreachable agent.
-    match output.status.code() {
-        Some(1) => return Ok(Vec::new()),
-        Some(2) => return Err(AppError::AgentUnavailable),
-        _ => {}
-    }
-
-    if !output.status.success() {
-        return Err(AppError::Process(
-            "Unable to list SSH agent identities".into(),
-        ));
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let fingerprints = stdout
-        .lines()
-        .filter_map(|line| {
-            // Format: "256 SHA256:xxx comment (ED25519)"
-            let mut parts = line.trim().splitn(3, ' ');
-            parts.next(); // bits
-            parts.next().map(|fp| fp.to_string())
-        })
-        .collect();
-
-    Ok(fingerprints)
+    crate::utils::ssh_runtime::AgentContext::resolve()?.fingerprints()
 }
 
 #[tauri::command(rename_all = "snake_case")]
 pub async fn add_key_to_agent(
     key_path: String,
     options: Option<super::agent_policy::AgentOptions>,
-) -> Result<bool> {
+) -> Result<super::operations::Operation> {
     tauri::async_runtime::spawn_blocking(move || {
         add_key_to_agent_blocking(key_path, options.unwrap_or_default())
     })
@@ -513,43 +548,64 @@ pub async fn add_key_to_agent(
 fn add_key_to_agent_blocking(
     key_path: String,
     options: super::agent_policy::AgentOptions,
-) -> Result<bool> {
+) -> Result<super::operations::Operation> {
+    use super::{launcher::shell_quote, operations};
+    use crate::utils::ssh_runtime::{self, AgentContext};
+    let _guard = operations::OPERATION_LOCK
+        .lock()
+        .map_err(|_| AppError::Process("Operation lock unavailable".into()))?;
     let args = options.args()?;
     validate_key_path(&key_path)?;
-    list_agent_keys_blocking()?;
+    let agent = AgentContext::resolve()?;
+    agent.fingerprints()?;
     let fingerprint = get_key_fingerprint_blocking(key_path.clone())?;
     if read_key(std::path::Path::new(&key_path))?.1 {
-        let mut arguments = args.clone();
+        let mut arguments = args;
         arguments.push(key_path.clone());
-        let quoted = arguments
-            .iter()
-            .map(|arg| crate::commands::launcher::shell_quote(arg))
-            .collect::<Vec<_>>()
-            .join(" ");
-        crate::commands::launcher::launch_terminal_command(&format!(
-            "env SSH_AUTH_SOCK={} ssh-add {}",
-            crate::commands::launcher::shell_quote(
-                &std::env::var("SSH_AUTH_SOCK").map_err(|_| AppError::AgentUnavailable)?
-            ),
-            quoted
-        ))?;
-        super::agent_policy::record(fingerprint, &options, true);
-        return Ok(false);
+        let command = format!(
+            "/usr/bin/env SSH_AUTH_SOCK={} SSH_ASKPASS_REQUIRE=never LC_ALL=C {} {}",
+            shell_quote(&agent.socket.to_string_lossy()),
+            shell_quote(&ssh_runtime::program("ssh-add")?.to_string_lossy()),
+            arguments
+                .iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        );
+        return operations::launch(
+            "agent_add",
+            key_path,
+            &command,
+            Some(agent),
+            Some(fingerprint),
+            Some(options),
+        );
     }
-    let mut command = Command::new("ssh-add");
+    let mut command = agent.command()?;
     command
         .env("SSH_ASKPASS_REQUIRE", "never")
         .args(&args)
         .arg(&key_path);
     let output = crate::utils::process::run(command, std::time::Duration::from_secs(10))?;
-    if !output.status.success() || output.timed_out {
+    if output.timed_out {
+        return Err(AppError::SshKey(
+            "ssh-add timed out after 10 seconds".into(),
+        ));
+    }
+    if !output.status.success() {
         return Err(AppError::SshKey(format!(
             "ssh-add failed: {}",
             output.stderr
         )));
     }
-    super::agent_policy::record(fingerprint, &options, false);
-    Ok(true)
+    if !agent.fingerprints()?.contains(&fingerprint) {
+        return Err(AppError::SshKey(
+            "ssh-add exited successfully but the fingerprint was not found in the selected agent"
+                .into(),
+        ));
+    }
+    super::agent_policy::record(fingerprint.clone(), &options, false);
+    Ok(operations::Operation::completed(key_path, fingerprint))
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -558,18 +614,41 @@ pub async fn remove_key_from_agent(key_path: String) -> Result<()> {
         .await
         .map_err(|e| AppError::Process(format!("Background operation failed: {e}")))?
 }
-
 fn remove_key_from_agent_blocking(key_path: String) -> Result<()> {
+    let _guard = super::operations::OPERATION_LOCK
+        .lock()
+        .map_err(|_| AppError::Process("Operation lock unavailable".into()))?;
+    remove_key_from_agent_inner(key_path)
+}
+fn remove_key_from_agent_inner(key_path: String) -> Result<()> {
     validate_key_path(&key_path)?;
     let fingerprint = get_key_fingerprint_blocking(key_path.clone())?;
-    let output = Command::new("ssh-add")
-        .args(["-d", &key_path])
-        .output()
-        .map_err(|e| AppError::Process(format!("ssh-add failed: {}", e)))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AppError::SshKey(format!("ssh-add -d failed: {}", stderr)));
+    if super::operations::list_blocking()?
+        .iter()
+        .any(|op| op.pending() && op.fingerprint.as_deref() == Some(&fingerprint))
+    {
+        return Err(AppError::InvalidInput(
+            "Finish or interrupt the pending terminal operation before removing this key.".into(),
+        ));
+    }
+    let agent = crate::utils::ssh_runtime::AgentContext::resolve()?;
+    if !agent.fingerprints()?.contains(&fingerprint) {
+        super::agent_policy::forget(&fingerprint);
+        return Ok(());
+    }
+    let mut command = agent.command()?;
+    command.args(["-d", &key_path]);
+    let output = crate::utils::process::run(command, std::time::Duration::from_secs(5))?;
+    if !output.status.success() || output.timed_out {
+        return Err(AppError::SshKey(format!(
+            "ssh-add -d failed: {}",
+            output.stderr
+        )));
+    }
+    if agent.fingerprints()?.contains(&fingerprint) {
+        return Err(AppError::SshKey(
+            "The key is still present in the selected agent".into(),
+        ));
     }
     super::agent_policy::forget(&fingerprint);
     Ok(())
@@ -666,6 +745,21 @@ mod tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
+    #[test]
+    fn reads_valid_openssh_ecdsa_with_short_private_scalar() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fixture");
+        std::fs::write(
+            &path,
+            include_bytes!("../../tests/fixtures/ecdsa-short-scalar"),
+        )
+        .unwrap();
+        set_private_key_permissions(&path).unwrap();
+        let info = parse_key_info(&path).expect("OpenSSH mpints may omit leading zero bytes");
+        assert_eq!(info.algorithm, "ecdsa");
+        assert_eq!(info.has_passphrase, Some(false));
+        assert!(info.fingerprint.starts_with("SHA256:"));
+    }
     #[test]
     fn generate_real_keypairs_for_every_supported_algorithm() {
         let dir = tempfile::tempdir().unwrap();

@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     io::Write,
     path::{Path, PathBuf},
-    process::Command,
 };
 fn invalid(s: impl Into<String>) -> AppError {
     AppError::InvalidInput(s.into())
@@ -196,13 +195,15 @@ fn apply(expected: AccessPlan) -> Result<()> {
         let content = repositories::bounded_text(&path)?;
         let mut temp = tempfile::NamedTempFile::new_in(path.parent().unwrap())?;
         temp.write_all(content.as_bytes())?;
-        let status = Command::new("git")
-            .args(["config", "--no-includes", "--file"])
-            .arg(temp.path())
-            .arg("--replace-all")
-            .arg(format!("remote.{}.url", expected.remote))
-            .arg(&expected.after)
-            .output()?;
+        let status = crate::utils::process::output(
+            crate::utils::ssh_runtime::command("git")?
+                .args(["config", "--no-includes", "--file"])
+                .arg(temp.path())
+                .arg("--replace-all")
+                .arg(format!("remote.{}.url", expected.remote))
+                .arg(&expected.after),
+            std::time::Duration::from_secs(30),
+        )?;
         if !status.status.success() {
             return Err(invalid("Cannot prepare the remote URL change"));
         }

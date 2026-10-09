@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashSet,
     path::{Path, PathBuf},
-    process::Command,
 };
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -93,11 +92,13 @@ pub(crate) fn bounded_text(path: &Path) -> Result<String> {
 pub(crate) fn git_config(path: &Path) -> Result<Vec<(String, String)>> {
     bounded_text(path)?;
     // --file and --no-includes prevent repository configuration from causing further reads.
-    let output = Command::new("git")
-        .args(["config", "--no-includes", "--file"])
-        .arg(path)
-        .args(["--null", "--list"])
-        .output()?;
+    let output = crate::utils::process::output(
+        crate::utils::ssh_runtime::command("git")?
+            .args(["config", "--no-includes", "--file"])
+            .arg(path)
+            .args(["--null", "--list"]),
+        std::time::Duration::from_secs(30),
+    )?;
     if !output.status.success() {
         return Err(invalid(format!(
             "Cannot parse Git config: {}",

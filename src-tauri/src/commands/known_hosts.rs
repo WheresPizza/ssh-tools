@@ -2,7 +2,6 @@ use crate::error::{AppError, Result};
 use crate::types::KnownHostEntry;
 use crate::utils::permissions::atomic_write;
 use crate::utils::ssh_dir::get_known_hosts_path;
-use std::process::Command;
 
 fn parse_known_hosts(content: &str) -> Vec<KnownHostEntry> {
     let mut entries = Vec::new();
@@ -151,10 +150,17 @@ fn verify_known_host_blocking(
     stored_key_data: String,
 ) -> Result<bool> {
     let (host, port) = scan_target(&hostname)?;
-    let output = Command::new("ssh-keyscan")
-        .args(["-T", "5", "-p", &port.to_string(), &host])
-        .output()
-        .map_err(|e| AppError::Process(format!("ssh-keyscan failed: {}", e)))?;
+    let output = crate::utils::process::output(
+        crate::utils::ssh_runtime::command("ssh-keyscan")?.args([
+            "-T",
+            "5",
+            "-p",
+            &port.to_string(),
+            &host,
+        ]),
+        std::time::Duration::from_secs(30),
+    )
+    .map_err(|e| AppError::Process(format!("ssh-keyscan failed: {}", e)))?;
 
     if output.stdout.is_empty() {
         return Err(AppError::Process(

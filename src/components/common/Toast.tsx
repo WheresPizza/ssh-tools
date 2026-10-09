@@ -9,9 +9,10 @@ interface ToastProps {
 
 export function Toast({ message, type, onClose }: ToastProps) {
   useEffect(() => {
+    if (type === "error") return;
     const timer = setTimeout(onClose, 3000);
     return () => clearTimeout(timer);
-  }, [onClose]);
+  }, [message, type, onClose]);
 
   return (
     <div role={type === "error" ? "alert" : "status"}

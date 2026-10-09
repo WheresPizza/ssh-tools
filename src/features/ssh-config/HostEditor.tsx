@@ -4,6 +4,7 @@ import type { SshHost } from "../../lib/tauri";
 
 interface HostEditorProps {
   host: SshHost | null;
+  error?: string | null;
   isNew?: boolean;
   onSave: (host: SshHost) => Promise<void>;
   onCancel: () => void;
@@ -23,7 +24,7 @@ const EMPTY_HOST: SshHost = {
   line_end: 0,
 };
 
-export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditorProps) {
+export function HostEditor({ host, isNew = false, onSave, onCancel, error }: HostEditorProps) {
   const [keys, setKeys] = useState<SshKeyInfo[]>([]);
   const [saving, setSaving] = useState(false);
   useEffect(() => { listSshKeys().then(setKeys).catch(() => setKeys([])); }, []);
@@ -53,6 +54,7 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
     <div>
       <div className="flex items-center gap-3 mb-5">
         <button
+          disabled={saving}
           onClick={onCancel}
           className="btn text-muted-foreground hover:text-foreground"
         >
@@ -64,7 +66,8 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
       </div>
 
       {host?.source_path && <p className="mb-4 text-xs text-muted-foreground">File: {host.source_path}</p>}
-      <form onSubmit={handleSubmit} className="max-w-lg space-y-4">
+      {error && <p role="alert" className="text-destructive text-sm mb-4 break-words">{error}</p>}
+      <form onSubmit={handleSubmit}><fieldset disabled={saving} className="max-w-lg space-y-4">
         <Field label="Alias" required>
           <input
             required
@@ -171,13 +174,14 @@ export function HostEditor({ host, isNew = false, onSave, onCancel }: HostEditor
           </button>
           <button
             type="button"
-            onClick={onCancel}
+            disabled={saving}
+          onClick={onCancel}
             className="btn"
           >
             Cancel
           </button>
         </div>
-      </form>
+      </fieldset></form>
     </div>
   );
 }
@@ -194,13 +198,13 @@ function Field({
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-foreground mb-1.5">
+    <label className="block">
+      <span className="block text-sm font-medium text-foreground mb-1.5">
         {label}
         {required && <span className="text-destructive ml-0.5">*</span>}
         {hint && <span className="ml-1 text-xs font-normal text-muted-foreground">({hint})</span>}
-      </label>
+      </span>
       {children}
-    </div>
+    </label>
   );
 }

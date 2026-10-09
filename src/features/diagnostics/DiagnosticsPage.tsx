@@ -14,6 +14,7 @@ export function DiagnosticsPage() {
   useEffect(() => { getSshConfig().then(hosts => setAliases([...new Set(hosts.map(h => h.alias).filter(isConnectableAlias))])).catch(e => setError(String(e))); }, []);
   async function run(network: boolean) {
     if (!isConnectableAlias(alias) || busy) return;
+    if (port !== null && (!Number.isInteger(port) || port < 1 || port > 65535)) { setError("Port must be an integer between 1 and 65535."); setReport(null); return; }
     setBusy(true); setError(null); setReport(null);
     try { setReport(await diagnoseSsh(alias, network, port)); } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }

@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useState } from "react";
+import { useEffect, useCallback, useState, useRef } from "react";
 import { subscribe } from "../../lib/events";
 import { useShallow } from "zustand/react/shallow";
 import { listKnownHosts, deleteKnownHosts, verifyKnownHost } from "../../lib/tauri";
@@ -19,6 +19,10 @@ export function KnownHostsPage() {
     }))
   );
 
+  const [error, setError] = useState<string | null>(null);
+  const [verifyErrors, setVerifyErrors] = useState<Record<number, string>>({});
+  const generation = useRef(0);
+  const verifying = useRef(new Set<number>());
   const [pendingDelete, setPendingDelete] = useState<KnownHostEntry[] | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [search, setSearch] = useState("");
@@ -26,16 +30,19 @@ export function KnownHostsPage() {
   const [verifyStatus, setVerifyStatus] = useState<Record<number, 'checking' | 'match' | 'mismatch' | 'error'>>({});
 
   const loadKnownHosts = useCallback(async () => {
+    const request = ++generation.current;
     setKnownHostsLoading(true);
     try {
       const data = await listKnownHosts();
+      if (request !== generation.current) return;
+      setVerifyErrors({});
       setKnownHosts(data);
       setSelected(new Set());
       setVerifyStatus({});
     } catch (e) {
       showToast(`Failed to load known hosts: ${e}`, "error");
     } finally {
-      setKnownHostsLoading(false);
+      if (request === generation.current) setKnownHostsLoading(false);
     }
   }, [setKnownHosts, setKnownHostsLoading, showToast]);
 
@@ -49,31 +56,34 @@ export function KnownHostsPage() {
 
   const handleDelete = (lineNumber: number) => {
     const entry = knownHosts.find(e => e.line_number === lineNumber);
-    if (entry) setPendingDelete([entry]);
+    if (entry) { setError(null); setPendingDelete([entry]); }
   };
 
   const confirmDelete = async () => {
     if (!pendingDelete || deleting) return;
-    setDeleting(true);
+    setError(null); setDeleting(true);
     try {
       await deleteKnownHosts(pendingDelete);
       showToast(`${pendingDelete.length} entries removed`, "success");
       setPendingDelete(null);
       await loadKnownHosts();
-    } catch (e) { showToast(`Failed to remove entries: ${e}`, "error"); }
+    } catch (e) { setError(`Failed to remove entries: ${e}`); }
     finally { setDeleting(false); }
   };
 
   const handleVerify = async (entry: KnownHostEntry) => {
-    setVerifyStatus((prev) => ({ ...prev, [entry.line_number]: 'checking' }));
+    if (verifying.current.has(entry.line_number)) return;
+    verifying.current.add(entry.line_number);
+    const request = generation.current;
+    const current = () => request === generation.current && useStore.getState().knownHosts.some(h => h.line_number === entry.line_number && h.hostname === entry.hostname && h.key_data === entry.key_data && h.key_type === entry.key_type);
+    setVerifyErrors(prev => { const next = { ...prev }; delete next[entry.line_number]; return next; });
+    setVerifyStatus(prev => ({ ...prev, [entry.line_number]: 'checking' }));
     try {
       const match = await verifyKnownHost(entry.hostname, entry.key_type, entry.key_data);
-      if (useStore.getState().knownHosts.some(current => current.line_number === entry.line_number && current.hostname === entry.hostname && current.key_data === entry.key_data)) {
-        setVerifyStatus((prev) => ({ ...prev, [entry.line_number]: match ? 'match' : 'mismatch' }));
-      }
-    } catch {
-      setVerifyStatus((prev) => ({ ...prev, [entry.line_number]: 'error' }));
-    }
+      if (current()) setVerifyStatus(prev => ({ ...prev, [entry.line_number]: match ? 'match' : 'mismatch' }));
+    } catch (e) {
+      if (current()) { setVerifyStatus(prev => ({ ...prev, [entry.line_number]: 'error' })); setVerifyErrors(prev => ({ ...prev, [entry.line_number]: String(e) })); }
+    } finally { verifying.current.delete(entry.line_number); }
   };
 
   const handleBulkDelete = () => setPendingDelete(knownHosts.filter(e => selected.has(e.line_number)));
@@ -85,7 +95,7 @@ export function KnownHostsPage() {
 
   return (
     <div>
-      {pendingDelete && <ConfirmDialog title="Remove trusted host entries" description={`Remove ${pendingDelete.length} entries? SSH will ask you to trust these hosts again on the next connection.`} onConfirm={confirmDelete} onCancel={() => { if (!deleting) setPendingDelete(null); }} confirmLabel={deleting ? "Removing…" : "Remove"} destructive />}
+      {pendingDelete && <ConfirmDialog busy={deleting} error={error} title="Remove trusted host entries" description={`Remove ${pendingDelete.length} entries? SSH will ask you to trust these hosts again on the next connection.`} onConfirm={confirmDelete} onCancel={() => { if (!deleting) setPendingDelete(null); }} confirmLabel={deleting ? "Removing…" : "Remove"} destructive />}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h2 className="text-lg font-semibold">Trusted Hosts</h2>
@@ -134,6 +144,7 @@ export function KnownHostsPage() {
           onSelect={setSelected}
           onDelete={handleDelete}
           verifyStatus={verifyStatus}
+          verifyErrors={verifyErrors}
           onVerify={handleVerify}
         />
       )}

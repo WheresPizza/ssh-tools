@@ -1,3 +1,5 @@
+import { useRef } from "react";
+import { useOperations } from "../../lib/operations";
 import { listKeyMetadata, type MetadataSnapshot } from "../../lib/tauri";
 import { KeyDetails } from "./KeyDetails";
 import { KeyAuditPanel } from "./KeyAuditPanel";
@@ -31,6 +33,7 @@ export function SshKeysPage() {
     }))
   );
 
+  const metadataRequest = useRef(0), keyRequest = useRef(0), agentRequest = useRef(0);
   const [metadata, setMetadata] = useState<MetadataSnapshot | null>(null);
   const [metadataError, setMetadataError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
@@ -38,11 +41,14 @@ export function SshKeysPage() {
   const [showAudit, setShowAudit] = useState(false);
   const [dataRevision, setDataRevision] = useState(0);
   const loadMetadata = useCallback(async () => {
-    try { setMetadata(await listKeyMetadata()); setMetadataError(null); }
-    catch (e) { setMetadataError(`Cannot load annotations: ${e}`); }
+    const request = ++metadataRequest.current;
+    try { const value = await listKeyMetadata(); if (request === metadataRequest.current) { setMetadata(value); setMetadataError(null); } }
+    catch (e) { if (request === metadataRequest.current) setMetadataError(`Cannot load annotations: ${e}`); }
   }, []);
   useEffect(() => { void loadMetadata(); window.addEventListener("focus", loadMetadata); return () => window.removeEventListener("focus", loadMetadata); }, [loadMetadata]);
   const [search, setSearch] = useState("");
+  const actionLock = useRef(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showImporter, setShowImporter] = useState(false);
   const [showGenerator, setShowGenerator] = useState(false);
@@ -53,26 +59,30 @@ export function SshKeysPage() {
   const [agentFingerprints, setAgentFingerprints] = useState<string[]>([]);
 
   const loadAgentKeys = useCallback(async () => {
+    const request = ++agentRequest.current;
     try {
-      const fps = await listAgentKeys();
+      const [fps, policies] = await Promise.all([listAgentKeys(), listAgentEnrollments()]);
+      if (request !== agentRequest.current) return;
       setAgentFingerprints(fps);
-      setEnrollments(await listAgentEnrollments());
+      setEnrollments(policies);
       setAgentError(null);
     } catch (error) {
+      if (request !== agentRequest.current) return;
       setAgentFingerprints([]);
       setAgentError(String(error));
     }
   }, []);
 
   const loadKeys = useCallback(async () => {
+    const request = ++keyRequest.current;
     setKeysLoading(true);
     try {
       const data = await listSshKeys();
-      setKeys(data);
+      if (request === keyRequest.current) setKeys(data);
     } catch (e) {
       showToast(`Failed to load keys: ${e}`, "error");
     } finally {
-      setKeysLoading(false);
+      if (request === keyRequest.current) setKeysLoading(false);
     }
   }, [setKeys, setKeysLoading, showToast]);
 
@@ -86,7 +96,8 @@ export function SshKeysPage() {
     const refresh = () => { void loadAgentKeys(); };
     const interval = window.setInterval(refresh, 15000);
     window.addEventListener("focus", refresh);
-    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+    window.addEventListener("ssh-agent-changed", refresh);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("ssh-agent-changed", refresh); };
   }, [loadAgentKeys]);
 
   useEffect(() => {
@@ -99,7 +110,9 @@ export function SshKeysPage() {
   }, [loadKeys]);
 
   const handleDelete = async (keyPath: string, name: string, fingerprint: string) => {
-    if (busy) return;
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setActionError(null);
     setBusy(true);
     try {
       await deleteSshKey(keyPath, fingerprint);
@@ -107,8 +120,8 @@ export function SshKeysPage() {
       loadKeys();
       loadAgentKeys();
     } catch (e) {
-      showToast(`Failed to delete key: ${e}`, "error");
-    } finally { setBusy(false); }
+      setActionError(`Failed to delete key: ${e}`);
+    } finally { actionLock.current = false; setBusy(false); }
   };
 
   const handleCopyPublicKey = async (keyPath: string) => {
@@ -122,28 +135,34 @@ export function SshKeysPage() {
   };
 
   const handleAddToAgent = async (key: SshKeyInfo, options: AgentOptions) => {
-    if (busy) return;
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setActionError(null);
     setBusy(true);
-    setAgentKey(null);
     try {
-      const added = await addKeyToAgent(key.private_path, options);
-      showToast(added ? `Key '${key.name}' added to agent` : "Enter the key passphrase in the terminal, then return here", added ? "success" : "info");
-      loadAgentKeys();
+      const operation = await addKeyToAgent(key.private_path, options);
+      useOperations.getState().track(operation);
+      window.dispatchEvent(new Event("terminal-operation-started"));
+      setAgentKey(null);
+      showToast(operation.state === "completed" ? `Key '${key.name}' added to agent` : "Enter the key passphrase in the terminal; the result will be verified here", operation.state === "completed" ? "success" : "info");
+      await loadAgentKeys();
     } catch (e) {
-      showToast(`Failed to add key to agent: ${e}`, "error");
-    } finally { setBusy(false); }
+      setActionError(`Failed to add key to agent: ${e}`);
+    } finally { actionLock.current = false; setBusy(false); }
   };
 
   const handleRemoveFromAgent = async (key: SshKeyInfo) => {
-    if (busy) return;
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setActionError(null);
     setBusy(true);
     try {
       await removeKeyFromAgent(key.private_path);
       showToast(`Key '${key.name}' removed from agent`, "success");
       loadAgentKeys();
     } catch (e) {
-      showToast(`Failed to remove key from agent: ${e}`, "error");
-    } finally { setBusy(false); }
+      setActionError(`Failed to remove key from agent: ${e}`);
+    } finally { actionLock.current = false; setBusy(false); }
   };
 
   const handleCopyToServerClick = (key: SshKeyInfo) => {
@@ -151,21 +170,27 @@ export function SshKeysPage() {
       showToast("Add SSH hosts in the SSH Hosts screen first", "info");
       return;
     }
+    setActionError(null);
     setCopyToServerKey(key);
   };
 
   const handleCopyToServer = async (hostAlias: string) => {
     if (!copyToServerKey) return;
-    if (busy) return;
+    if (actionLock.current) return;
+    actionLock.current = true;
+    setActionError(null);
     setBusy(true);
     try {
-      await copyKeyToServer(copyToServerKey.private_path, hostAlias);
-      showToast(`Opening terminal to copy ${copyToServerKey.name} to ${hostAlias}`, "success");
-    } catch (e) {
-      showToast(`Failed: ${e}`, "error");
-    } finally {
-      setBusy(false);
+      const operation = await copyKeyToServer(copyToServerKey.private_path, hostAlias);
+      useOperations.getState().track(operation);
+      window.dispatchEvent(new Event("terminal-operation-started"));
       setCopyToServerKey(null);
+      showToast("Complete authentication in the terminal. Installation is awaiting verification.", "info");
+    } catch (e) {
+      setActionError(`Failed: ${e}`);
+    } finally {
+      actionLock.current = false;
+      setBusy(false);
     }
   };
 
@@ -198,6 +223,7 @@ export function SshKeysPage() {
 
       {selected && !selectedKey && <p role="status" className="mb-4 text-warning">The selected key file is no longer in the library.</p>}
       <PermissionsAudit />
+      {actionError && !agentKey && !copyToServerKey && <div role="alert" className="mb-4 text-sm text-destructive">{actionError} <button className="btn btn-compact" onClick={() => setActionError(null)}>Dismiss error</button></div>}
       {metadataError && <div role="alert" className="mb-4 text-sm text-destructive">{metadataError} <button className="btn btn-compact" onClick={() => void loadMetadata()}>Retry annotations</button></div>}
       {showAudit && <KeyAuditPanel metadata={metadataError ? null : metadata} revision={dataRevision} onClose={() => setShowAudit(false)} onOpen={setSelected} />}
       {agentError && <p role="status" className="mb-4 rounded border border-border p-3 text-sm">{agentError}</p>}
@@ -233,17 +259,18 @@ export function SshKeysPage() {
           metadata={metadata}
           onDetails={key => setSelected(key.private_path)}
           agentFingerprints={agentFingerprints}
+          agentAvailable={!agentError}
           enrollments={enrollments}
           onDelete={handleDelete}
           onCopyPublicKey={handleCopyPublicKey}
           onCopyToServer={handleCopyToServerClick}
-          onAddToAgent={setAgentKey}
+          onAddToAgent={key => { setActionError(null); setAgentKey(key); }}
           onRemoveFromAgent={handleRemoveFromAgent}
         />
       )}
 
       </fieldset>
-      {agentKey && <AgentOptionsDialog keyName={agentKey.name} onConfirm={options => handleAddToAgent(agentKey, options)} onCancel={() => setAgentKey(null)} />}
+      {agentKey && <AgentOptionsDialog busy={busy} actionError={actionError} keyName={agentKey.name} onConfirm={options => handleAddToAgent(agentKey, options)} onCancel={() => { if (!busy) { setAgentKey(null); setActionError(null); } }} />}
       {showImporter && <KeyImportDialog onClose={() => setShowImporter(false)} onImported={() => { setShowImporter(false); void loadKeys(); }} />}
       {showGenerator && (
         <KeyGeneratorDialog
@@ -254,10 +281,12 @@ export function SshKeysPage() {
 
       {copyToServerKey && (
         <CopyToServerDialog
+          busy={busy}
+          error={actionError}
           keyName={copyToServerKey.name}
           hosts={hosts.filter(h => isConnectableAlias(h.alias))}
           onConfirm={handleCopyToServer}
-          onCancel={() => setCopyToServerKey(null)}
+          onCancel={() => { if (!busy) { setCopyToServerKey(null); setActionError(null); } }}
         />
       )}
     </div>

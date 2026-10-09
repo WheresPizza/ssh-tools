@@ -1,3 +1,4 @@
+import { TerminalOperations } from "../common/TerminalOperations";
 import { Sidebar } from "./Sidebar";
 import { Toast } from "../common/Toast";
 import { useStore } from "../../stores";
@@ -14,6 +15,7 @@ export function AppShell({ children }: AppShellProps) {
     <div className="flex h-screen overflow-hidden bg-background text-foreground">
       <Sidebar />
       <main className="flex-1 min-w-0 overflow-auto p-5">
+        <TerminalOperations />
         {children}
       </main>
       {toast && (

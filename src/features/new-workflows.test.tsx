@@ -168,3 +168,25 @@ describe("access setup from key details", () => {
     expect(screen.queryByRole("button", { name: "Preview URL change" })).toBeNull();
   });
 });
+
+it("prevents overlapping native file pickers during import", async () => {
+  vi.mocked(open).mockReturnValue(new Promise(() => {}));
+  render(<KeyImportDialog onClose={vi.fn()} onImported={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose private key file" }));
+  fireEvent.click(screen.getByRole("button", { name: "Choose private key file" }));
+  expect(open).toHaveBeenCalledOnce();
+});
+it("blocks invalid diagnostic ports before invoking a system command", async () => {
+  render(<DiagnosticsPage />);
+  fireEvent.change(screen.getByLabelText(/Port override/), { target: { value: "65536" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test authentication" }));
+  expect(api.diagnoseSsh).not.toHaveBeenCalled();
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("65535"));
+});
+
+it("keeps reverse Tab inside a dialog after a native picker returns focus to its panel", () => {
+  render(<AgentOptionsDialog keyName="fixture" onConfirm={vi.fn()} onCancel={vi.fn()} />);
+  const dialog = screen.getByRole("dialog"); dialog.focus();
+  fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Cancel" }));
+});

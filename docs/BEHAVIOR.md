@@ -40,9 +40,9 @@ Import copies a validated source into a private staging directory, checks the re
 
 Agent lifetime and confirmation constraints are enforced by `ssh-agent`, including after the app closes. Per-use confirmation requires a working agent-side `SSH_ASKPASS` helper; without confirmation, signing is refused. The UI refreshes actual agent membership on focus and every 15 seconds. OpenSSH does not expose current lifetime/confirmation constraints through key listing, so the UI labels settings as the last enrollment requested by this app session and does not invent policies for externally loaded keys.
 
-## Dependency audit (2026-09-30)
+## Dependency audit (2026-10-07)
 
-`npm audit` reports zero vulnerabilities. RustSec prompted updates to `plist` (1.10.0, using quick-xml 0.41.0), `anyhow` (1.0.104), and `rand` 0.8 (0.8.8).
+`npm audit` reports zero vulnerabilities after source-map-js was updated to 1.2.2 for GHSA-68fv-2mgg-jv7q. RustSec prompted updates to `plist` (1.10.0, using quick-xml 0.41.0), `anyhow` (1.0.104), and `rand` 0.8 (0.8.8).
 
 The full cross-platform Cargo lockfile still reports three vulnerability findings: quick-xml 0.38.4 (two XML DoS advisories, through Linux Wayland) and optional rsa 0.9.10 (Marvin timing advisory). Neither package is in the current macOS dependency tree (`cargo tree -i ...` reports no entries). The app generates/signs RSA keys through system OpenSSH; ssh-key's RSA arithmetic feature is not enabled. The glib warning is also outside the macOS tree.
 
@@ -62,3 +62,12 @@ The wizard discovers explicit path references across the current SSH configurati
 A plan includes both key fingerprints, document revisions, target IDs and exact before/after values. Apply recomputes the plan and validates the selection before writing. Named literal Host directives in writable managed files can be changed while preserving unrelated lines; global, Match and patterned/multiple-alias rules and external includes remain manual. Generated profile metadata and directives are updated together.
 
 Before changing any config, the writer stages private replacement and rollback files plus standard per-file backups. Each rename is atomic. Detected write failures roll back prior writes only if the file still contains the wizard’s output; concurrent external edits are not overwritten. Failures requiring manual recovery name their paths. There is no cross-file OS transaction or crash-atomic guarantee; backups are available in Settings, and a multi-file recovery must restore each changed file. A final directory-sync failure explicitly reports that changes were written. Snapshot checks reduce stale-write risk but do not lock arbitrary external editors.
+
+## 0.3.3 operation result contract
+
+- `add_key_to_agent` returns a structured operation, not a boolean. A plain-key completion includes a verified fingerprint. Interactive enrollment has started/awaiting_input/completed/cancelled/failed states; only a zero exit receipt followed by a matching fingerprint in the operation's captured agent counts as completion.
+- Runtime operation metadata and numeric exit receipts are stored in a private `operations/` directory under the application settings directory. They contain paths, public fingerprints and requested policy, never passphrases or terminal output. Completed results can be dismissed. An interrupted command may report cancelled for signal exits or failed for nonzero passphrase/EOF exits; neither is reported as success.
+- If the app was closed until after a key expired or was removed, verification can report absence even if ssh-add originally succeeded. It does not invent a historical success. In-memory enrollment policy is descriptive and never represents a queried agent restriction.
+- System OpenSSH programs are selected by absolute path. Agent commands are bounded and use a single captured socket. Missing GUI agent environment may consult launchd; explicit invalid sockets and isolated workspaces never fall back to a different agent.
+- Connection launch and successful authentication are separate. Server installation reports the terminal command's exit result and asks for authentication verification; it does not claim remote access merely because a window opened.
+- `ssh-copy-id -f` still appends a selected public key and may create duplicates on repeated installation. This candidate does not silently remove that behavior or change server trust policy.

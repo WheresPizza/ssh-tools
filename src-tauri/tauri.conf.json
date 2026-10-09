@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "SSH GUI",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "identifier": "io.github.wherespizza.ssh-tools",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -38,6 +38,11 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": true,
+      "entitlements": "Entitlements.plist"
+    }
   }
 }

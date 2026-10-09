@@ -1,3 +1,4 @@
+use commands::operations::*;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
@@ -139,6 +140,8 @@ pub fn run() {
             save_key_metadata,
             audit_ssh_keys,
             list_agent_enrollments,
+            list_terminal_operations,
+            dismiss_terminal_operation,
             inspect_key_import,
             import_ssh_key,
             restore_public_key,
@@ -172,6 +175,7 @@ pub fn run() {
             copy_key_to_server,
             // App
             get_workspace,
+            get_runtime_info,
             list_backups,
             restore_backup,
             audit_permissions,

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { subscribe } from "../../lib/events";
 import { useShallow } from "zustand/react/shallow";
 import { getSshConfig, addHost, updateHost, deleteHost, reorderHosts, launchSshConnection } from "../../lib/tauri";
@@ -22,6 +22,9 @@ export function SshConfigPage() {
     }))
   );
 
+  const [error, setError] = useState<string | null>(null);
+  const lock = useRef(false), request = useRef(0);
+  const [busy, setBusy] = useState(false);
   const [editingHost, setEditingHost] = useState<SshHost | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -29,14 +32,15 @@ export function SshConfigPage() {
   const filteredHosts = filterHosts(hosts, searchQuery);
 
   const loadHosts = useCallback(async () => {
+    const sequence = ++request.current;
     setLoading(true);
     try {
       const data = await getSshConfig();
-      setHosts(data);
+      if (sequence === request.current) setHosts(data);
     } catch (e) {
       showToast(`Failed to load SSH config: ${e}`, "error");
     } finally {
-      setLoading(false);
+      if (sequence === request.current) setLoading(false);
     }
   }, [setHosts, setLoading, showToast]);
 
@@ -49,27 +53,33 @@ export function SshConfigPage() {
   }, [loadHosts]);
 
   const handleAdd = () => {
+    setError(null);
     setEditingHost(null);
     setIsAdding(true);
   };
 
   const handleEdit = (host: SshHost) => {
+    setError(null);
     setEditingHost(host);
     setIsAdding(false);
   };
 
   const handleDelete = async (host: SshHost) => {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError(null);
     const alias = host.alias;
     try {
       await deleteHost(alias, host.revision ?? "", host.source_path ?? "", host.line_start);
       showToast(`Host '${alias}' deleted`, "success");
       loadHosts();
     } catch (e) {
-      showToast(`Failed to delete host: ${e}`, "error");
-    }
+      setError(`Failed to delete host: ${e}`);
+    } finally { lock.current = false; setBusy(false); }
   };
 
   const handleSave = async (host: SshHost) => {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError(null);
     try {
       if (isAdding) {
         await addHost(host);
@@ -82,11 +92,13 @@ export function SshConfigPage() {
       setEditingHost(null);
       loadHosts();
     } catch (e) {
-      showToast(`Failed to save host: ${e}`, "error");
-    }
+      setError(`Failed to save host: ${e}`);
+    } finally { lock.current = false; setBusy(false); }
   };
 
   const handleReorder = async (reordered: SshHost[]) => {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError(null);
     const complete = mergeVisibleHostOrder(hosts, reordered);
     setHosts(complete);
     try {
@@ -99,13 +111,17 @@ export function SshConfigPage() {
       }
       await loadHosts();
     } catch (e) {
-      showToast(`Failed to reorder: ${e}`, "error");
-      loadHosts();
-    }
+      setError(`Failed to reorder: ${e}`);
+      await loadHosts();
+    } finally { lock.current = false; setBusy(false); }
   };
 
-  const handleConnect = (host: SshHost) => {
-    launchSshConnection(host.alias).then(() => recordConnection(host.alias)).catch((e) => showToast(`Failed to launch: ${e}`, "error"));
+  const handleConnect = async (host: SshHost) => {
+    if (lock.current) return;
+    lock.current = true; setBusy(true); setError(null);
+    try { await launchSshConnection(host.alias); recordConnection(host.alias); showToast("Terminal launched. Authentication is completed in the terminal; it has not been verified here.", "info"); }
+    catch (e) { setError(`Failed to launch: ${e}`); }
+    finally { lock.current = false; setBusy(false); }
   };
 
   const handleDuplicate = (host: SshHost) => {
@@ -121,6 +137,7 @@ export function SshConfigPage() {
   if (isAdding || editingHost) {
     return (
       <HostEditor
+        error={error}
         host={editingHost}
         isNew={isAdding}
         onSave={handleSave}
@@ -144,6 +161,7 @@ export function SshConfigPage() {
         </button>
       </div>
 
+      {error && <p role="alert" className="mb-4 text-destructive text-sm break-words">{error} <button className="btn btn-compact" onClick={() => setError(null)}>Dismiss error</button></p>}
       <button className="btn btn-compact mb-4" onClick={() => useStore.getState().setActiveTab("settings")}>File recovery in Settings</button>
       <p className="mb-4 text-xs text-muted-foreground">Git profile aliases are generated configuration and remain read-only here. <button className="underline text-primary" onClick={() => useStore.getState().setActiveTab("git-profiles")}>Manage Git Profiles</button></p>
       {loading ? (
@@ -179,7 +197,7 @@ export function SshConfigPage() {
               No results for "{searchQuery}"
             </p>
           ) : (
-            <HostList
+            <fieldset disabled={busy}><HostList
               hosts={filteredHosts}
               connectionHistory={connectionHistory}
               onEdit={handleEdit}
@@ -187,7 +205,7 @@ export function SshConfigPage() {
               onReorder={handleReorder}
               onConnect={handleConnect}
               onDuplicate={handleDuplicate}
-            />
+            /></fieldset>
           )}
         </>
       )}

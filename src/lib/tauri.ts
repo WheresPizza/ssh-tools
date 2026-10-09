@@ -76,7 +76,7 @@ export const deleteSshKey = (keyPath: string, expectedFingerprint: string) => in
 export const getKeyFingerprint = (keyPath: string) => invoke<string>("get_key_fingerprint", { key_path: keyPath });
 
 export const listAgentKeys = () => invoke<string[]>("list_agent_keys");
-export const addKeyToAgent = (keyPath: string, options: AgentOptions | null = null) => invoke<boolean>("add_key_to_agent", { key_path: keyPath, options });
+export const addKeyToAgent = (keyPath: string, options: AgentOptions | null = null) => invoke<TerminalOperation>("add_key_to_agent", { key_path: keyPath, options });
 export const removeKeyFromAgent = (keyPath: string) => invoke<void>("remove_key_from_agent", { key_path: keyPath });
 
 // Known Hosts
@@ -92,7 +92,7 @@ export const getDetectedTerminal = () => invoke<TerminalInfo[]>("get_detected_te
 export const setPreferredTerminal = (terminal: string) =>
   invoke<void>("set_preferred_terminal", { terminal });
 export const copyKeyToServer = (keyPath: string, hostAlias: string) =>
-  invoke<void>("copy_key_to_server", { key_path: keyPath, host_alias: hostAlias });
+  invoke<TerminalOperation>("copy_key_to_server", { key_path: keyPath, host_alias: hostAlias });
 
 // App
 export const getAppConfig = () => invoke<AppConfig>("get_app_config");
@@ -157,3 +157,14 @@ export interface KeyRotationTarget { id: string; kind: "host" | "profile"; label
 export interface KeyRotationPlan { old_path: string; old_fingerprint: string; new_path: string; new_fingerprint: string; revisions: Record<string, string>; targets: KeyRotationTarget[]; warnings: string[] }
 export const previewKeyRotation = (oldKey: SshKeyInfo, newKey: SshKeyInfo) => invoke<KeyRotationPlan>("preview_key_rotation", { old_path: oldKey.private_path, old_fingerprint: oldKey.fingerprint, new_path: newKey.private_path, new_fingerprint: newKey.fingerprint });
 export const applyKeyRotation = (plan: KeyRotationPlan, selected: string[]) => invoke<void>("apply_key_rotation", { plan, selected });
+
+export interface TerminalOperation {
+  id: string; kind: "agent_add" | "server_install"; target: string;
+  state: "started" | "awaiting_input" | "completed" | "cancelled" | "failed";
+  detail: string; fingerprint: string | null; exit_code: number | null; started_at: number;
+}
+export const listTerminalOperations = () => invoke<TerminalOperation[]>("list_terminal_operations");
+export const dismissTerminalOperation = (id: string) => invoke<void>("dismiss_terminal_operation", { id });
+
+export interface RuntimeInfo { version: string; executable: string; architecture: string; os: string; isolated: boolean; ssh_dir: string; ssh_program: string; ssh_add_program: string; agent_socket: string | null; agent_source: string | null; agent_error: string | null }
+export const getRuntimeInfo = () => invoke<RuntimeInfo>("get_runtime_info");
