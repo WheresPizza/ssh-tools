@@ -8,6 +8,8 @@ interface ConfirmDialogProps {
   confirmLabel?: string;
   destructive?: boolean;
   confirmDisabled?: boolean;
+  busy?: boolean;
+  error?: string | null;
 }
 
 export function ConfirmDialog({
@@ -18,6 +20,8 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   destructive = false,
   confirmDisabled = false,
+  busy = false,
+  error = null,
 }: ConfirmDialogProps) {
   const id = useId();
   const panel = useRef<HTMLDivElement>(null);
@@ -30,7 +34,7 @@ export function ConfirmDialog({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div ref={panel} role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} aria-describedby={`${id}-description`}
         onKeyDown={event => {
-          if (event.key === "Escape") { event.preventDefault(); onCancel(); }
+          if (event.key === "Escape") { event.preventDefault(); if (!busy) onCancel(); }
           if (event.key === "Tab") {
             const buttons = panel.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)");
             if (!buttons?.length) return;
@@ -41,15 +45,17 @@ export function ConfirmDialog({
         }} className="bg-card border border-border rounded-lg shadow-xl p-6 max-w-lg w-full mx-4 max-h-[85vh] overflow-auto">
         <h3 id={`${id}-title`} className="text-base font-semibold text-card-foreground mb-2">{title}</h3>
         <p id={`${id}-description`} className="text-sm text-muted-foreground mb-5 whitespace-pre-line break-words">{description}</p>
+        {error && <p role="alert" className="text-sm text-destructive mb-3 break-words">{error}</p>}
         <div className="flex gap-2 justify-end">
           <button
+            disabled={busy}
             onClick={onCancel}
             className="btn"
           >
             Cancel
           </button>
           <button
-            disabled={confirmDisabled}
+            disabled={confirmDisabled || busy}
             onClick={onConfirm}
             className={`btn ${
               destructive

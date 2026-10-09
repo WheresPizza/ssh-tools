@@ -1,3 +1,4 @@
+import { useOperations } from "../lib/operations";
 // @vitest-environment jsdom
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -25,6 +26,7 @@ const entry = { line_number: 1, hostname: "github.com", key_type: "ssh-ed25519",
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useOperations.setState({ operations: [] });
   useStore.persist.setOptions({ storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } });
   useStore.setState({ hosts: [], keys: [], knownHosts: [], toast: null });
   vi.mocked(api.getKeyUsage).mockResolvedValue({ hosts: [], profiles: [], repositories: [], roots: [], warnings: [] });
@@ -37,6 +39,7 @@ beforeEach(() => {
   vi.mocked(api.listKnownHosts).mockResolvedValue([entry]);
   vi.mocked(api.listBackups).mockResolvedValue([]);
   vi.mocked(api.deleteKnownHosts).mockResolvedValue(undefined);
+  vi.mocked(api.copyKeyToServer).mockResolvedValue({ id: "server-operation", kind: "server_install", target: "fixture", state: "awaiting_input", detail: "Waiting", fingerprint: null, exit_code: null, started_at: 0 });
 });
 afterEach(cleanup);
 
@@ -50,7 +53,7 @@ describe("SSH management workflows", () => {
     await waitFor(() => expect(api.copyKeyToServer).toHaveBeenCalledWith(key.private_path, host.alias));
   });
   it("reports passphrase entry rather than falsely claiming an encrypted key was added", async () => {
-    vi.mocked(api.addKeyToAgent).mockResolvedValue(false);
+    vi.mocked(api.addKeyToAgent).mockResolvedValue({ id: "test-operation", kind: "agent_add", target: key.private_path, state: "awaiting_input", detail: "Waiting for terminal", fingerprint: key.fingerprint, exit_code: null, started_at: 0 });
     render(<SshKeysPage />);
     fireEvent.click(await screen.findByText("Add to Agent"));
     fireEvent.click(screen.getByRole("button", { name: "Add with these settings" }));
@@ -184,4 +187,45 @@ it("adds a due-date reminder to audit without claiming that the key expired", as
   expect(await screen.findByText("warning · Planned replacement is due")).toBeTruthy();
   expect(screen.getByText(/This does not expire or revoke the key/)).toBeTruthy();
   expect(api.deleteSshKey).not.toHaveBeenCalled();
+});
+
+// Stabilization regressions: a failed action must remain reviewable and retryable.
+it("keeps the agent options open with a persistent error after launch failure", async () => {
+  vi.mocked(api.addKeyToAgent).mockRejectedValue(new Error("Terminal automation denied"));
+  render(<SshKeysPage />);
+  fireEvent.click(await screen.findByText("Add to Agent"));
+  fireEvent.click(screen.getByRole("button", { name: "Add with these settings" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Terminal automation denied"));
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
+it("keeps destination and error available when server transfer cannot launch", async () => {
+  vi.mocked(api.copyKeyToServer).mockRejectedValue(new Error("ssh-copy-id is unavailable"));
+  render(<SshKeysPage />);
+  fireEvent.click(await screen.findByText("Copy to Server"));
+  fireEvent.click(screen.getByRole("button", { name: "Copy Key" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("ssh-copy-id is unavailable"));
+  expect(screen.getByLabelText("Destination host")).toBeTruthy();
+});
+
+it("allows retrying a failed trusted-host comparison and retains the error", async () => {
+  vi.mocked(api.verifyKnownHost).mockRejectedValueOnce(new Error("Host unreachable"));
+  render(<KnownHostsPage />);
+  fireEvent.click(await screen.findByRole("button", { name: "Compare key" }));
+  expect(await screen.findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("Host unreachable"));
+  expect(screen.getByRole("button", { name: "Compare key" })).toBeTruthy();
+});
+it("closes key generation with Escape and restores opener focus", () => {
+  const cancel = vi.fn();
+  render(<KeyGeneratorDialog onClose={vi.fn()} onCancel={cancel} />);
+  fireEvent.keyDown(screen.getByLabelText("Algorithm"), { key: "Escape" });
+  expect(cancel).toHaveBeenCalledOnce();
+});
+it("keeps recovery failure inside the confirmation dialog", async () => {
+  vi.mocked(api.listBackups).mockResolvedValue([{ path: "/fixture/config", current_revision: "a", backup_revision: "b", preview: "Host old" }]);
+  vi.mocked(api.restoreBackup).mockRejectedValue(new Error("The file or backup changed"));
+  render(<BackupPanel />);
+  fireEvent.click(await screen.findByText("/fixture/config"));
+  fireEvent.click(screen.getByRole("button", { name: "Restore this version" }));
+  fireEvent.click(screen.getByRole("button", { name: "Restore" }));
+  expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveProperty("textContent", expect.stringContaining("backup changed"));
 });

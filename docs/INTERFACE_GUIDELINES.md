@@ -46,3 +46,7 @@ The application mark combines a terminal prompt and a key on a graphite tile. It
 ## Key details and audit
 
 Key details is a drill-down inside SSH Keys with Back to keys, not a new navigation entity. Annotations are edited only there; list rows show tags and expose filters. The audit is a read-only report inside the same screen. Severity uses both words and semantic colors. Put incomplete coverage beside findings, and keep repair actions in their existing owning panel. File actions remain attached to a specific path even when annotations are shared by fingerprint.
+
+### Stabilization result states
+
+Keep errors at the relevant action until explicit dismissal or retry. A terminal launch is an intermediate state: distinguish awaiting input, completed with verification, cancelled and failed. Do not display a success toast for opening a connection or installer. Preserve selections and forms after launch/validation errors. Prevent double submissions including the time a native file picker is open. Dialogs need initial/restored focus, Tab containment, Escape when idle and scrollable content at the minimum window size. Settings reports the running binary version; never hardcode a separate frontend release label.

@@ -13,3 +13,5 @@ pub mod ssh_keys;
 pub mod repository_access;
 
 pub mod key_rotation;
+
+pub mod operations;

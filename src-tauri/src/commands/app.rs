@@ -299,3 +299,55 @@ pub fn get_workspace() -> Result<WorkspaceInfo> {
         isolated: crate::utils::ssh_dir::workspace_root()?.is_some(),
     })
 }
+
+#[derive(serde::Serialize)]
+pub struct RuntimeInfo {
+    version: String,
+    executable: String,
+    architecture: String,
+    os: String,
+    isolated: bool,
+    ssh_dir: String,
+    ssh_program: String,
+    ssh_add_program: String,
+    agent_socket: Option<String>,
+    agent_source: Option<String>,
+    agent_error: Option<String>,
+}
+#[tauri::command(rename_all = "snake_case")]
+pub async fn get_runtime_info() -> Result<RuntimeInfo> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let agent = crate::utils::ssh_runtime::AgentContext::resolve();
+        let (agent_socket, agent_source, agent_error) = match agent {
+            Ok(agent) => (
+                Some(agent.socket.to_string_lossy().into_owned()),
+                Some(agent.source.clone()),
+                agent.fingerprints().err().map(|e| e.to_string()),
+            ),
+            Err(e) => (
+                std::env::var("SSH_AUTH_SOCK").ok(),
+                None,
+                Some(e.to_string()),
+            ),
+        };
+        Ok(RuntimeInfo {
+            version: env!("CARGO_PKG_VERSION").into(),
+            executable: std::env::current_exe()?.to_string_lossy().into(),
+            architecture: std::env::consts::ARCH.into(),
+            os: std::env::consts::OS.into(),
+            isolated: crate::utils::ssh_dir::workspace_root()?.is_some(),
+            ssh_dir: get_ssh_dir()?.to_string_lossy().into(),
+            ssh_program: crate::utils::ssh_runtime::program("ssh")?
+                .to_string_lossy()
+                .into(),
+            ssh_add_program: crate::utils::ssh_runtime::program("ssh-add")?
+                .to_string_lossy()
+                .into(),
+            agent_socket,
+            agent_source,
+            agent_error,
+        })
+    })
+    .await
+    .map_err(|e| crate::error::AppError::Process(e.to_string()))?
+}

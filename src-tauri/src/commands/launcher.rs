@@ -1,6 +1,7 @@
 use crate::commands::app::{get_app_config, save_app_config};
 use crate::error::{AppError, Result};
 use crate::types::TerminalInfo;
+use crate::utils::ssh_runtime;
 use crate::utils::terminal::{build_launch_args, detect_terminals};
 use std::process::Command;
 use std::sync::Mutex;
@@ -16,11 +17,14 @@ pub async fn launch_ssh_connection(host_alias: String) -> Result<()> {
 
 fn launch_ssh_connection_blocking(host_alias: String) -> Result<()> {
     validate_destination(&host_alias)?;
-    launch_terminal_command(&format!(
-        "ssh -F {} -- {}",
-        shell_quote(&crate::utils::ssh_dir::get_ssh_config_path()?.to_string_lossy()),
+    let command = format!(
+        "{} {} {} -- {}",
+        terminal_environment()?,
+        shell_quote(&ssh_runtime::program("ssh")?.to_string_lossy()),
+        connection_arguments()?,
         shell_quote(&host_alias)
-    ))
+    );
+    launch_terminal_command(&command)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -65,13 +69,22 @@ pub fn set_preferred_terminal(terminal: String) -> Result<()> {
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn copy_key_to_server(key_path: String, host_alias: String) -> Result<()> {
+pub async fn copy_key_to_server(
+    key_path: String,
+    host_alias: String,
+) -> Result<super::operations::Operation> {
     tauri::async_runtime::spawn_blocking(move || copy_key_to_server_blocking(key_path, host_alias))
         .await
         .map_err(|e| crate::error::AppError::Process(format!("Background operation failed: {e}")))?
 }
 
-fn copy_key_to_server_blocking(key_path: String, host_alias: String) -> Result<()> {
+fn copy_key_to_server_blocking(
+    key_path: String,
+    host_alias: String,
+) -> Result<super::operations::Operation> {
+    let _guard = super::operations::OPERATION_LOCK
+        .lock()
+        .map_err(|_| AppError::Process("Operation lock unavailable".into()))?;
     validate_destination(&host_alias)?;
     crate::utils::ssh_dir::validate_key_path(&key_path)?;
     let pub_path = format!("{}.pub", key_path);
@@ -91,14 +104,68 @@ fn copy_key_to_server_blocking(key_path: String, host_alias: String) -> Result<(
         file.sync_all()?;
     }
 
+    let mut environment = terminal_environment()?;
+    if let Some(workspace) = crate::utils::ssh_dir::workspace_root()? {
+        let home = workspace.join("transfer-home");
+        std::fs::create_dir_all(home.join(".ssh"))?;
+        environment.push_str(&format!(" HOME={}", shell_quote(&home.to_string_lossy())));
+    }
     let cmd = format!(
-        "ssh-copy-id -f -F {} -i {} {}",
-        shell_quote(&crate::utils::ssh_dir::get_ssh_config_path()?.to_string_lossy()),
+        "{} {} -f {} -i {} {}",
+        environment,
+        shell_quote(&ssh_runtime::program("ssh-copy-id")?.to_string_lossy()),
+        connection_arguments()?,
         shell_quote(&pub_path),
         shell_quote(&host_alias)
     );
 
-    launch_terminal_command(&cmd)
+    super::operations::launch(
+        "server_install",
+        format!("{key_path} → {host_alias}"),
+        &cmd,
+        None,
+        None,
+        None,
+    )
+}
+
+// An absent agent is compatible with SSH's direct key/password authentication.
+// Preserve explicit values (including unavailable sockets), never inherit the terminal's agent.
+fn terminal_environment() -> Result<String> {
+    let socket = match std::env::var_os("SSH_AUTH_SOCK") {
+        Some(value) => value.to_string_lossy().into_owned(),
+        None => ssh_runtime::AgentContext::resolve()
+            .map(|a| a.socket.to_string_lossy().into_owned())
+            .unwrap_or_default(),
+    };
+    Ok(format!("/usr/bin/env PATH=/usr/bin:/bin:/usr/sbin:/sbin LC_ALL=C SSH_ASKPASS_REQUIRE=never SSH_AUTH_SOCK={}", shell_quote(&socket)))
+}
+fn connection_arguments() -> Result<String> {
+    let config = crate::utils::ssh_dir::get_ssh_config_path()?;
+    let mut args = vec![
+        "-F".to_owned(),
+        if config.exists() {
+            config.to_string_lossy().into_owned()
+        } else {
+            "/dev/null".into()
+        },
+    ];
+    if crate::utils::ssh_dir::workspace_root()?.is_some() {
+        args.extend([
+            "-o".into(),
+            format!(
+                "UserKnownHostsFile={}",
+                crate::utils::ssh_dir::get_known_hosts_path()?.display()
+            ),
+            "-o".into(),
+            "GlobalKnownHostsFile=/dev/null".into(),
+        ]);
+    }
+    Ok(args
+        .iter()
+        .map(|arg| shell_quote(arg))
+        .collect::<Vec<_>>()
+        .join(" "))
 }
 
 /// POSIX shell quoting; AppleScript escaping is a separate layer in terminal.rs.
@@ -140,11 +207,16 @@ pub fn launch_terminal_command(command: &str) -> Result<()> {
         .or_else(|| terminals.first())
         .ok_or_else(|| AppError::NotFound("No terminal found".into()))?;
     let (program, args) = build_launch_args(&terminal.name, command);
-    if program == "osascript" {
-        let result = Command::new(program).args(args).output()?;
+    if program == "/usr/bin/osascript" {
+        let mut command = Command::new(program);
+        command.args(args);
+        let result = crate::utils::process::run(command, std::time::Duration::from_secs(30))?;
+        if result.timed_out {
+            return Err(AppError::Process("Terminal did not acknowledge the launch within 30 seconds. Check the terminal and macOS Automation permissions before retrying.".into()));
+        }
         if !result.status.success() {
             return Err(AppError::Process(
-                String::from_utf8_lossy(&result.stderr).trim().into(),
+                format!("Terminal automation failed: {}. Check System Settings → Privacy & Security → Automation → SSH GUI.", result.stderr.trim()),
             ));
         }
     } else {

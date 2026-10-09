@@ -9,6 +9,8 @@ interface KeyCardProps {
   tags: string[];
   onDetails: () => void;
   agentFingerprints: string[];
+  agentAvailable: boolean;
+  pending: boolean;
   enrollment?: AgentEnrollment;
   onDelete: () => void;
   onCopyPublicKey: () => void;
@@ -23,7 +25,7 @@ const ALG_LABELS: Record<string, string> = {
   ecdsa: "ECDSA",
 };
 
-export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, enrollment, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
+export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, agentAvailable, pending, enrollment, onDelete, onCopyPublicKey, onCopyToServer, onAddToAgent, onRemoveFromAgent }: KeyCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const isInAgent = agentFingerprints.includes(keyInfo.fingerprint);
 
@@ -79,8 +81,10 @@ export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, enrollmen
           >
             Copy to Server
           </button>
+          {pending && <span role="status" className="text-xs text-warning self-center">Waiting for terminal</span>}
           {isInAgent ? (
             <button
+              disabled={!agentAvailable || pending}
               onClick={onRemoveFromAgent}
               className="btn btn-compact"
             >
@@ -88,6 +92,7 @@ export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, enrollmen
             </button>
           ) : (
             <button
+              disabled={!agentAvailable || pending}
               onClick={onAddToAgent}
               className="btn btn-compact"
             >
@@ -95,6 +100,7 @@ export function KeyCard({ keyInfo, tags, onDetails, agentFingerprints, enrollmen
             </button>
           )}
           <button
+            disabled={pending}
             onClick={() => setConfirmDelete(true)}
             className="btn btn-danger btn-compact"
           >

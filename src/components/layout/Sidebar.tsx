@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { GitBranch, FileCog, KeyRound, Activity, Terminal, ShieldCheck, Settings2 } from "lucide-react";
 import { useStore } from "../../stores";
 import { SidebarNavItem } from "./SidebarNavItem";
@@ -18,6 +20,8 @@ const NAV_GROUPS = [
 ];
 
 export function Sidebar() {
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => { getVersion().then(setVersion).catch(() => setVersion(null)); }, []);
   const activeTab = useStore((s) => s.activeTab);
   const setActiveTab = useStore((s) => s.setActiveTab);
   return (
@@ -36,7 +40,7 @@ export function Sidebar() {
           </div>
         </div>)}
       </nav>
-      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / v0.3.2</div>
+      <div className="mt-auto mx-4 pt-4 border-t border-border text-xs text-muted-foreground">SSH GUI / {version ? `v${version}` : "version unavailable"}</div>
     </aside>
   );
 }

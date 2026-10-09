@@ -8,6 +8,7 @@ interface KnownHostsTableProps {
   onSelect: (selected: Set<number>) => void;
   onDelete: (lineNumber: number) => void;
   verifyStatus: Record<number, VerifyState>;
+  verifyErrors: Record<number, string>;
   onVerify: (entry: KnownHostEntry) => void;
 }
 
@@ -24,7 +25,7 @@ function VerifyStatusIcon({ status }: { status: VerifyState }) {
   return <span className="text-yellow-600 dark:text-yellow-400 font-bold">⚠</span>;
 }
 
-export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyStatus, onVerify }: KnownHostsTableProps) {
+export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyStatus, verifyErrors, onVerify }: KnownHostsTableProps) {
   const toggleAll = () => {
     if (entries.every(e => selected.has(e.line_number))) {
       onSelect(new Set());
@@ -44,7 +45,7 @@ export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyS
   };
 
   return (
-    <div className="border border-border rounded-lg overflow-hidden">
+    <div className="border border-border rounded-lg overflow-x-auto">
       <table className="w-full text-sm">
         <thead className="bg-muted/50">
           <tr>
@@ -82,16 +83,16 @@ export function KnownHostsTable({ entries, selected, onSelect, onDelete, verifyS
               <td className="p-3 text-right">
                 <div className="flex items-center justify-end gap-2">
                   {!entry.marker && !entry.hostname.startsWith("|1|") && (
-                    verifyStatus[entry.line_number] ? (
-                      <VerifyStatusIcon status={verifyStatus[entry.line_number]} />
-                    ) : (
-                      <button
+                    <div className="space-y-1">
+                      {verifyStatus[entry.line_number] && <span role="status" aria-label={verifyStatus[entry.line_number]}><VerifyStatusIcon status={verifyStatus[entry.line_number]} /></span>}
+                      {verifyErrors[entry.line_number] && <p role="alert" className="text-xs text-destructive break-words">{verifyErrors[entry.line_number]}</p>}
+                      <button disabled={verifyStatus[entry.line_number] === 'checking'}
                         onClick={() => onVerify(entry)}
                         className="btn btn-compact text-muted-foreground hover:text-foreground hover:underline"
                       >
                         Compare key
                       </button>
-                    )
+                    </div>
                   )}
                   <button
                     onClick={() => onDelete(entry.line_number)}

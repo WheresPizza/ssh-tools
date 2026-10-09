@@ -80,3 +80,15 @@ In Diagnostics, start with **Check configuration**. It evaluates effective host,
 - **Restore configuration:** open Settings → File recovery, expand Backups and recovery, review the file preview, then confirm restoration. This can affect both host rules and Git profiles. Only one previous version is retained; private keys are not included.
 
 Closing the window hides the app to the menu bar. Reopen it from the menu bar or Dock; use Quit to exit.
+
+## Agent and terminal troubleshooting (0.3.3 candidate)
+
+For **Add to Agent**, OpenSSH's command is `ssh-add`. **Connect** uses `ssh`; **Copy to Server** installs a public key separately. They are different operations.
+
+When an encrypted key needs its passphrase, enter it in the chosen terminal. Keep the terminal open until the command finishes, then check the operation result in SSH GUI. “Awaiting input” means enrollment is not yet confirmed. Success requires the expected fingerprint in the same agent. Press Ctrl+C in the terminal to interrupt; an empty/wrong passphrase can instead yield a nonzero failure result. Failure/cancellation remains visible until dismissed, and pending results survive restarting the app. Finish an interactive enrollment before deleting/removing that identity.
+
+If the terminal cannot launch, review the inline error and **System Settings → Privacy & Security → Automation → SSH GUI**. Only grant the terminal automation access you intend. A launch timeout is an unconfirmed result; inspect the terminal before retrying. Opening a connection window is not proof of authentication. Use **Diagnostics → Test authentication** to verify public-key access. An installation command finishing is likewise separate from verifying the intended identity is accepted by the server.
+
+In **Settings → Running application**, check the actual version, executable location, workspace and agent socket. An older copy in Applications or the Dock can differ from a locally built preview. SSH GUI uses the macOS system OpenSSH tools. If no agent environment was inherited, it can select the agent registered with macOS launchd; an explicitly configured unavailable socket is never silently replaced. An isolated workspace never falls back to the user's agent.
+
+Errors stay visible for review. In agent and installation dialogs, retry preserves your selection. Trusted Hosts comparisons can be retried without discarding the error first. Modal forms support Escape, bounded scrolling and keyboard focus; Cancel is unavailable while a submitted filesystem operation is in progress.

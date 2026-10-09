@@ -1,3 +1,4 @@
+import { useDialog } from "../../components/common/useDialog";
 import { useState } from "react";
 import { generateSshKey } from "../../lib/tauri";
 import type { KeyAlgorithm, KeyGenParams } from "../../lib/tauri";
@@ -25,6 +26,9 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
   const [passphraseConfirm, setPassphraseConfirm] = useState("");
   const [generating, setGenerating] = useState(false);
 
+  const panel = useDialog(onCancel, generating);
+  const [error, setError] = useState<string | null>(null);
+
   const handleAlgorithmChange = (alg: KeyAlgorithm) => {
     setAlgorithm(alg);
     const defaults: Record<KeyAlgorithm, string> = {
@@ -40,7 +44,9 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
   const handleGenerate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (generating) return;
+    setError(null);
     if (passphrase !== passphraseConfirm) {
+      setError("Passphrases do not match");
       showToast("Passphrases do not match", "error");
       return;
     }
@@ -57,6 +63,7 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
       showToast(`Key '${filename}' generated successfully`, "success");
       onClose();
     } catch (e) {
+      setError(`Failed to generate key: ${e}`);
       showToast(`Failed to generate key: ${e}`, "error");
     } finally {
       setGenerating(false);
@@ -65,10 +72,10 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border border-border rounded-lg shadow-xl p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
-        <h3 className="text-base font-semibold mb-4">Generate SSH Key</h3>
+      <div ref={panel} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="generate-title" className="bg-card border border-border rounded-lg shadow-xl p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto">
+        <h3 id="generate-title" className="text-base font-semibold mb-4">Generate SSH Key</h3>
 
-        <form onSubmit={handleGenerate} className="space-y-4">
+        <form onSubmit={handleGenerate}><fieldset disabled={generating} className="space-y-4">
           <div>
             <label htmlFor="key-algorithm" className="block text-sm font-medium mb-1.5">Algorithm</label>
             <select
@@ -132,6 +139,7 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
             </div>
           )}
 
+          {error && <p role="alert" className="text-destructive text-sm break-words">{error}</p>}
           <div className="flex gap-2 pt-2">
             <button
               type="submit"
@@ -149,7 +157,7 @@ export function KeyGeneratorDialog({ onClose, onCancel }: KeyGeneratorDialogProp
               Cancel
             </button>
           </div>
-        </form>
+        </fieldset></form>
       </div>
     </div>
   );

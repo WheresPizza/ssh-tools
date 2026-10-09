@@ -31,7 +31,7 @@ Key management also includes:
 
 Download a build from [GitHub Releases](https://github.com/WheresPizza/ssh-tools/releases), when available. Choose the artifact matching your Mac's architecture, open the `.dmg`, and drag **SSH GUI.app** to Applications. This release targets **macOS**; Linux and Windows are not validated release targets.
 
-Current builds are **unsigned and not notarized**. macOS may block opening them. Release assets should state their signing status; do not expect a notarized installer. If no compatible asset is available, [build from source](docs/DEVELOPMENT.md).
+Published 0.3.2 builds have no Developer ID signature or notarization. The local 0.3.3 candidate adds ad-hoc bundle signing with Hardened Runtime; it is **not Developer ID signed or notarized**. macOS may block opening these builds. Release assets should state their signing status; do not expect a notarized installer. If no compatible asset is available, [build from source](docs/DEVELOPMENT.md).
 
 The app uses the OpenSSH tools on your machine. Key installation additionally needs `ssh-copy-id`. Terminal, iTerm2, Alacritty and kitty are supported in their standard macOS locations; Terminal is the fallback.
 
@@ -90,3 +90,7 @@ The final command produces native bundles under `src-tauri/target/release/bundle
 ## License
 
 [MIT](LICENSE).
+
+## Local stabilization candidate
+
+Work on 0.3.3 focuses on reliable SSH-agent completion, command routing, persistent errors and ECDSA interoperability. It is **not yet accepted as stable or published**. The [acceptance matrix](docs/releases/0.3.3-verification.md) distinguishes passing automated checks from pending native Terminal.app, installation and upgrade scenarios. Settings in the candidate shows the actual running version and executable location.

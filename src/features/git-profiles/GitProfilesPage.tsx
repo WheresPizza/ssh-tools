@@ -42,7 +42,7 @@ export function GitProfilesPage() {
   }
   async function remove() {
     if (!deleting || busy) return;
-    setBusy(true);
+    setError(null); setBusy(true);
     try { setSnapshot(await deleteGitProfile(deleting.profile.alias, deleting.revision)); setDeleting(null); showToast("Profile removed. The key file was kept.", "success"); }
     catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
@@ -57,7 +57,7 @@ export function GitProfilesPage() {
       <div><h2 className="text-lg font-semibold">Git Profiles</h2><p className="text-sm text-muted-foreground">Keep work, personal and client Git accounts on their own SSH aliases.</p></div>
       {!editing && <button className="btn btn-primary shrink-0" disabled={!snapshot} onClick={() => setEditing({ profile: emptyProfile(), original: null, revision: snapshot!.revision })}>New profile</button>}
     </header>
-    {error && <div role="alert" className="border border-destructive rounded p-3 text-sm"><p>{error}</p><button className="btn underline mt-2" onClick={refresh}>Refresh profiles</button></div>}
+    {error && !deleting && <div role="alert" className="border border-destructive rounded p-3 text-sm"><p>{error}</p><button className="btn underline mt-2" onClick={refresh}>Refresh profiles</button></div>}
     {editing ? <form onSubmit={save} className="max-w-2xl rounded-lg border border-border p-5">
       <h3 className="font-medium mb-4">{editing.original ? "Edit Git profile" : "Create Git profile"}</h3>
       <fieldset disabled={busy} className="grid grid-cols-2 gap-4 text-sm">
@@ -82,13 +82,13 @@ export function GitProfilesPage() {
       {snapshot?.profiles.length === 0 && <div className="border border-dashed rounded-lg p-8 text-center"><h3 className="font-medium">Your first Git profile</h3><p className="text-sm text-muted-foreground mt-2">Choose an existing SSH key and give the account its own alias, such as github-work.</p></div>}
       {!snapshot && !error && <p>Loading profiles…</p>}
       <div className="grid gap-3">{snapshot?.profiles.map(profile => <article key={profile.alias} className="rounded-lg border border-border bg-card p-4 space-y-2">
-        <div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted-foreground">{profile.account} · {profile.hostname}</p></div><div className="flex gap-2 text-sm"><button className="btn" onClick={() => setEditing({ profile: { ...profile }, original: profile.alias, revision: snapshot.revision })}>Edit</button><button className="btn" onClick={() => useStore.getState().openDiagnostics(profile.alias)}>Diagnose</button><button className="btn btn-danger" onClick={() => setDeleting({ profile, revision: snapshot.revision })}>Remove</button></div></div>
+        <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted-foreground">{profile.account} · {profile.hostname}</p></div><div className="flex gap-2 text-sm"><button className="btn" onClick={() => setEditing({ profile: { ...profile }, original: profile.alias, revision: snapshot.revision })}>Edit</button><button className="btn" onClick={() => useStore.getState().openDiagnostics(profile.alias)}>Diagnose</button><button className="btn btn-danger" onClick={() => { setError(null); setDeleting({ profile, revision: snapshot.revision }); }}>Remove</button></div></div>
         <p className="text-sm"><span className="font-mono">{profile.user}@{profile.alias}</span> · port {profile.port} · IdentitiesOnly</p>
         <p className="font-mono text-xs break-all text-muted-foreground">{profile.key_path}</p>
         {!keys.some(k => k.private_path === profile.key_path) && <p role="status" className="text-sm text-destructive">Key is missing or unreadable. Edit this profile to select another key.</p>}
         {cloneUrl(profile, repository) ? <div className="flex items-center gap-2 pt-2"><code className="text-sm break-all flex-1">{cloneUrl(profile, repository)}</code><button className="btn shrink-0" onClick={() => copy(profile)}>Copy clone URL</button></div> : repository && <p className="text-xs text-destructive">Use a repository path with letters, numbers, dots, hyphens, underscores and slashes.</p>}
       </article>)}</div>
     </>}
-    {deleting && <ConfirmDialog title="Remove Git profile" description={`Remove '${deleting.profile.name}' and its SSH alias '${deleting.profile.alias}'? Repositories using that alias will stop connecting until their remote is changed. The key file will be kept.`} confirmLabel={busy ? "Removing…" : "Remove profile"} destructive onConfirm={remove} onCancel={() => { if (!busy) setDeleting(null); }} />}
+    {deleting && <ConfirmDialog busy={busy} error={error} title="Remove Git profile" description={`Remove '${deleting.profile.name}' and its SSH alias '${deleting.profile.alias}'? Repositories using that alias will stop connecting until their remote is changed. The key file will be kept.`} confirmLabel={busy ? "Removing…" : "Remove profile"} destructive onConfirm={remove} onCancel={() => { if (!busy) setDeleting(null); }} />}
   </section>;
 }

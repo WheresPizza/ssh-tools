@@ -3,7 +3,7 @@ use crate::{
     utils::{process, ssh_dir::*},
 };
 use serde::Serialize;
-use std::{path::PathBuf, process::Command, time::Duration};
+use std::{path::PathBuf, time::Duration};
 #[derive(Serialize)]
 pub struct DiagnosticStep {
     pub status: String,
@@ -121,7 +121,7 @@ pub(crate) fn diagnose_blocking(
         report.step("warning", "Configuration evaluation needs an interactive review", "Match exec or dynamically expanded Include paths could execute local commands while SSH evaluates its configuration. Automatic diagnostics did not run them.", Some("Review those directives and use your terminal for this configuration."));
         return Ok(report);
     }
-    let mut command = Command::new("ssh");
+    let mut command = crate::utils::ssh_runtime::command("ssh")?;
     command.env("LC_ALL", "C").arg("-G").arg("-F").arg(&path);
     if let Some(port) = port_override {
         command.arg("-p").arg(port.to_string());
@@ -169,7 +169,8 @@ pub(crate) fn diagnose_blocking(
         ),
         None,
     );
-    match super::ssh_keys::list_agent_keys_blocking() {
+    let agent = crate::utils::ssh_runtime::AgentContext::resolve();
+    match agent.as_ref().map_err(|e| e.to_string()).and_then(|a| a.fingerprints().map_err(|e| e.to_string())) {
         Ok(keys) => { report.agent_fingerprints = keys; report.step("ok", "SSH agent", format!("{} identities available", report.agent_fingerprints.len()), None); }
         Err(e) => report.step("warning", "SSH agent unavailable", e.to_string(), Some("Start an SSH agent and launch the app with its SSH_AUTH_SOCK, or use an unencrypted configured key.")),
     }
@@ -236,7 +237,13 @@ pub(crate) fn diagnose_blocking(
         return Ok(report);
     }
     // No shell or remote command, no forwards, no interactive prompts, no changes to trust stores.
-    let mut command = Command::new("ssh");
+    let mut command = crate::utils::ssh_runtime::command("ssh")?;
+    match &agent {
+        Ok(agent) => agent.apply(&mut command),
+        Err(_) => {
+            command.env("SSH_AUTH_SOCK", "");
+        }
+    }
     command
         .env("LC_ALL", "C")
         .args(["-vv", "-N", "-T", "-F"])

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.3
+
+- Local stabilization candidate; native acceptance is still incomplete. See the [acceptance report](docs/releases/0.3.3-verification.md).
+- Use system OpenSSH paths, bounded subprocesses and one explicitly selected agent per operation; only missing GUI agent environment may use the macOS launchd agent.
+- Track terminal completion separately from launch. Verify agent enrollment by fingerprint, retain pending/failed/cancelled results across app restarts, and prevent duplicate interactive enrollment.
+- Fix valid ECDSA keys rejected because of short private scalars; validate generated pairs before publishing files. Passphrases never enter process arguments or completion receipts.
+- Retain action errors and failed dialogs, allow trusted-host comparisons to be retried, block overlapping import pickers and invalid diagnostic ports, and improve modal keyboard/scroll behavior.
+- Display the running version, executable, architecture, workspace, system tools and agent in Settings. Connection launch no longer implies successful authentication.
+- Seal macOS bundles with an ad-hoc signature, retain Hardened Runtime and declare the Apple Events entitlement required for terminal automation. Developer ID signing and notarization remain unavailable.
+- Update source-map-js to 1.2.2 to resolve the npm audit denial-of-service advisory.
+- Expand IPC/PTY/loopback and UI regressions, including failed authentication, cancellation, restart and public-key installation through the production command.
+
 ## 0.3.2
 
 - Added **Replace key references** in key details: choose a new identity, inspect host/profile references, select changes, review before/after values and apply after acknowledging public-key registration.
